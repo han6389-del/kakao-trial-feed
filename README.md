@@ -24,7 +24,7 @@
 - 배포 URL(GitHub Pages 등)을 폰에서 열고, 브라우저 메뉴의 **홈 화면에 추가**로 앱처럼 쓴다.
 - 상단: 갱신 시각 · 모집중 건수 · 신규 건수 · 신청 완료 건수 · 최고 당첨확률.
 - 칩: `전체` / `오늘 신규` / `미신청만`, 정렬: `당첨확률 높은순` / `모집인원 많은순` / `마감임박순`, 키워드 검색.
-- 카드의 **[모바일 신청 열기]** 를 누르면 체험단 모바일 페이지가 새 탭으로 열리고, 그 상품은 자동으로
+- 카드의 **[모바일 신청 열기]** 를 누르면 카카오톡 앱이 열리며 그 체험단의 **신청 화면으로 바로** 간다. 그 상품은 같이 자동으로
   **신청 완료**로 체크된다(토스트의 `되돌리기` 또는 카드의 `완료` 버튼으로 해제 가능).
   체크 상태는 그 폰의 `localStorage` 에만 저장된다.
 
@@ -51,7 +51,7 @@
       "winRate": 0.38,
       "endDate": "2026-11-27",
       "isNew": true,
-      "mobileUrl": "https://gift.kakao.com/giftbox/trial-campaign/6ae18f5f291df432e3cde034",
+      "mobileUrl": "https://gift-talk.kakao.com/appredirect?to=https%253A%252F%252Fgift.kakao.com%252Fgiftbox%252Ftrial-campaign%252F6ae18f5f291df432e3cde034&input_channel_id=13478",
       "remainingDays": 6,
       "category": "리빙 · 인테리어",
       "productId": 11149624
@@ -60,6 +60,7 @@
 }
 ```
 
+- `mobileUrl` = **카카오톡 앱 직행 딥링크**다(아래 **신청 링크** 참고). 형식: `https://gift-talk.kakao.com/appredirect?to={이중 인코딩한 상품 URL}&input_channel_id=13478`
 - `winRate` = `min(100, 모집인원 / max(신청인원, 1) × 100)`
 - `endDate` = 수집일 + API `remainingDays` (모집 기간이 7일이라 마감까지 6일 남은 묶음이 그날 새로 열린 배치)
 - `isNew` = `remainingDays >= 6`
@@ -105,3 +106,18 @@ GitHub 웹에서 **Actions → Update trial campaigns → Run workflow** 로도 
 - 파트너 API `https://gift.kakao.com/a/partner-trial/api/v1/trial-campaigns` 는 `page=0` 이 첫 장이다
   (`page=1` 부터 받으면 최신 100건이 빠진다). `size=100` 까지 동작한다.
 - 신청은 각 상품의 `mobileUrl` 로 열리는 **모바일** 페이지에서만 진행된다(2026-11-19 부터 PC 접속 차단).
+
+## 신청 링크 (앱 직행 딥링크)
+
+`gift.kakao.com/giftbox/trial-campaign/{id}` 를 폰 브라우저에서 열면 카카오톡으로 넘어가지 않고 선물하기 홈으로 떨어진다.
+카카오 공식 앱링크(`kko.to` 단축링크가 301 로 보내는 주소)를 그대로 쓰면 카카오톡 앱의 해당 상품 신청 화면으로 직행한다.
+
+```
+https://gift-talk.kakao.com/appredirect?to=https%253A%252F%252Fgift.kakao.com%252Fgiftbox%252Ftrial-campaign%252F{campaignId}&input_channel_id=13478
+```
+
+- `to` 값은 **이중 인코딩**이다. `appredirect` 는 받은 `to` 를 그대로 `intent://gift/home?to=...#Intent;scheme=kakaotalk;package=com.kakao.talk;end` 에 실어 카카오톡을 열기 때문에, 한 번만 인코딩하면 앱에서 상품을 못 찾는다.
+- 생성은 `scripts/fetch_campaigns.py` 의 `mobile_url()`(=`urllib.parse.quote` 2회)과 `app.js` 의 `KT.deepLink()`(`encodeURIComponent` 2회) 두 곳에서 하고, 결과 문자열은 서로 같다.
+- `app.js` 는 JSON 의 `mobileUrl` 대신 `campaignId` 로 링크를 다시 만든다. 예전 주소가 캐시에 남아 있어도 앱으로 직행한다.
+- 카카오톡이 안 열리면 `appredirect` 페이지의 “카카오톡 선물하기로 이동” 버튼을 한 번 눌러 주면 된다.
+

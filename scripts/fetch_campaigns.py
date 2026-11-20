@@ -20,11 +20,21 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
 API_URL = "https://gift.kakao.com/a/partner-trial/api/v1/trial-campaigns"
-MOBILE_URL = "https://gift.kakao.com/giftbox/trial-campaign/{campaign_id}"
+
+# 카카오톡 앱 직행 딥링크.
+# gift.kakao.com 의 모바일 페이지는 앱으로 넘기지 못하고 선물하기 홈으로 떨어지므로,
+# 카카오 공식 앱링크(kko.to 단축링크가 301 로 보내는 주소)를 그대로 쓴다.
+#   https://gift-talk.kakao.com/appredirect?to={이중 인코딩한 상품 URL}&input_channel_id=13478
+# appredirect 는 to 값을 그대로 intent://gift/home?to=... 에 실어 카카오톡을 열기 때문에
+# to 는 반드시 두 번 인코딩해야 한다(https -> https%253A%252F%252F...).
+APP_REDIRECT_URL = "https://gift-talk.kakao.com/appredirect"
+APP_INPUT_CHANNEL_ID = "13478"
+TRIAL_PATH = "https://gift.kakao.com/giftbox/trial-campaign/{campaign_id}"
 PAGE_SIZE = 100
 MAX_PAGES = 60
 KST = timezone(timedelta(hours=9))
@@ -63,6 +73,13 @@ KIDS_KEYWORDS = [
 
 # 신규 판정: 모집 기간이 7일이라 마감까지 6일 이상 남은 묶음이 가장 최근 등록분이다.
 NEW_MIN_REMAINING_DAYS = 6
+
+
+def mobile_url(campaign_id: str) -> str:
+    """카카오톡 앱의 해당 체험단 신청 화면으로 직행하는 딥링크."""
+    target = TRIAL_PATH.format(campaign_id=campaign_id)
+    encoded = urllib.parse.quote(urllib.parse.quote(target, safe=""), safe="")
+    return f"{APP_REDIRECT_URL}?to={encoded}&input_channel_id={APP_INPUT_CHANNEL_ID}"
 
 
 def fetch_page(page: int, retries: int = 4) -> dict:
@@ -144,7 +161,7 @@ def to_record(raw: dict, today) -> dict:
         "winRate": round(win_rate, 2),
         "endDate": (today + timedelta(days=remaining)).isoformat(),
         "isNew": remaining >= NEW_MIN_REMAINING_DAYS,
-        "mobileUrl": MOBILE_URL.format(campaign_id=cid),
+        "mobileUrl": mobile_url(cid),
         "remainingDays": remaining,
         "category": " · ".join(x for x in (lcat, mcat) if x),
         "productId": raw.get("productId"),

@@ -7,6 +7,17 @@
   var PAGE = 30;
   var KEEP_DAYS = 45;
 
+  /* 카카오톡 앱 직행 딥링크 — scripts/fetch_campaigns.py 의 mobile_url() 과 같은 형식.
+   * gift.kakao.com 모바일 페이지는 앱으로 못 넘기고 선물하기 홈으로 떨어진다.
+   * appredirect 는 to 값을 그대로 intent:// 에 실어 카카오톡을 열기 때문에 이중 인코딩이 필요하다. */
+  var APP_REDIRECT = "https://gift-talk.kakao.com/appredirect";
+  var APP_CHANNEL = "13478";
+  function deepLink(campaignId) {
+    var target = "https://gift.kakao.com/giftbox/trial-campaign/" + campaignId;
+    var encoded = encodeURIComponent(encodeURIComponent(target));
+    return APP_REDIRECT + "?to=" + encoded + "&input_channel_id=" + APP_CHANNEL;
+  }
+
   /* ── 순수 로직 ─────────────────────────── */
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -96,6 +107,7 @@
   global.KT = {
     esc: esc, num: num, pct: pct, dday: dday, todayKST: todayKST, fmtUpdated: fmtUpdated,
     matches: matches, sortList: sortList, query: query, summarize: summarize, cardHTML: cardHTML,
+    deepLink: deepLink,
     STORE: STORE, PAGE: PAGE, KEEP_DAYS: KEEP_DAYS
   };
 
@@ -160,6 +172,8 @@
   function cardHTML(c, done) {
     var dd = dday(c.endDate);
     done = !!done;
+    // 캐시·구버전 JSON 의 mobileUrl 이 홈으로 떨어지는 예전 주소여도, campaignId 로 앱 딥링크를 다시 만든다.
+    var href = c.campaignId ? deepLink(c.campaignId) : (c.mobileUrl || "");
     var img = c.imageUrl
       ? '<img class="thumb" loading="lazy" decoding="async" src="' + esc(c.imageUrl) + '" alt="" ' +
         'onerror="this.outerHTML=\'<div class=&quot;thumb-ph&quot;>🎁</div>\'">'
@@ -182,7 +196,7 @@
         (c.isNew ? '<span class="newtag">NEW</span>' : "") +
       "</div>" +
       '<div class="actions">' +
-        '<a class="open" href="' + esc(c.mobileUrl) + '" target="_blank" rel="noopener noreferrer" ' +
+        '<a class="open" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" ' +
           'data-open="' + esc(c.campaignId) + '">모바일 신청 열기</a>' +
         '<button class="toggle" type="button" data-toggle="' + esc(c.campaignId) + '" aria-pressed="' +
           (done ? "true" : "false") + '">' + (done ? "✓ 완료" : "완료 체크") + "</button>" +
