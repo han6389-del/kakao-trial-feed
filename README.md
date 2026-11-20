@@ -28,6 +28,10 @@
 - 카드의 **[모바일 신청 열기]** 를 누르면 카카오톡 앱이 열리며 그 체험단의 **신청 화면으로 바로** 간다. 그 상품은 같이 자동으로
   **신청 완료**로 체크된다(토스트의 `되돌리기` 또는 카드의 `완료` 버튼으로 해제 가능).
   체크 상태는 그 폰의 `localStorage` 에만 저장된다.
+- 카드 오른쪽 아래줄 **[✕ 숨기기]** 를 누르면 그 상품이 목록에서 빠진다(마음에 안 드는 상품 정리용).
+  바로 뜨는 토스트의 **되돌리기**(4초)로 한 번에 복구되고, 4초가 지나도 하단 안내의
+  **숨긴 상품 N개 모두 되돌리기** 로 되살릴 수 있다. 숨김은 `localStorage` 의 `kt_hidden_v1` 에만 저장되며
+  목록·상단 건수(`모집중`·`신규`·`최고 확률`)·카테고리 칩 건수에서 모두 빠진다.
 
 ## 데이터
 
@@ -98,6 +102,16 @@ python3 scripts/fetch_campaigns.py                 # data/campaigns.json 갱신
 python3 scripts/fetch_campaigns.py --dry-run       # 파일 쓰지 않고 통계만
 python3 scripts/fetch_campaigns.py --show-excluded # 제외된 상품과 사유까지 출력
 python3 scripts/build_standalone.py                # 단일 HTML 배포본 만들기
+```
+
+## 검증 (숨김 기능)
+
+빌드 도구 없이 QuickJS(파이썬 `quickjs` 패키지)로 `app.js` 를 그대로 불러 돌린다. 실제 `data/campaigns.json` 을 쓴다.
+
+```bash
+pip install quickjs
+python3 tests/run_hide_test.py   # 순수 로직: 숨김 추가·복구·건수/칩 재계산·카드 마크업 (27개)
+python3 tests/run_ui_test.py     # 화면 흐름: 가짜 DOM 에서 숨기기 클릭→토스트 되돌리기→재로드 유지 (22개)
 ```
 
 GitHub 웹에서 **Actions → Update trial campaigns → Run workflow** 로도 즉시 갱신할 수 있다.

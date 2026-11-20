@@ -1,5 +1,5 @@
 /* 카카오 체험단 피드 — 앱 껍데기는 캐시, 데이터(campaigns.json)는 네트워크 우선 */
-const CACHE = "kt-feed-v3"; // 카테고리 필터 칩(index.html·styles.css·app.js) 반영을 위해 올림
+const CACHE = "kt-feed-v4"; // 카드 숨기기(✕)·실행 취소 토스트 반영(index.html·styles.css·app.js)을 위해 올림
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json", "./icons/icon.svg", "./icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {

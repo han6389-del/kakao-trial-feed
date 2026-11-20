@@ -4,8 +4,10 @@
   "use strict";
 
   var STORE = "ktApp.applied.v1";
+  var HIDDEN_STORE = "kt_hidden_v1";
   var PAGE = 30;
   var KEEP_DAYS = 45;
+  var HIDDEN_DAYS = 60; // 숨김은 60일 뒤 정리(모집 기간이 7일이라 목록에서 이미 빠져 있다)
 
   /* 카카오톡 앱 직행 딥링크 — scripts/fetch_campaigns.py 의 mobile_url() 과 같은 형식.
    * gift.kakao.com 모바일 페이지는 앱으로 못 넘기고 선물하기 홈으로 떨어진다.
@@ -124,6 +126,34 @@
   function query(all, opts) {
     return sortList((all || []).filter(function (c) { return matches(c, opts); }), (opts || {}).sort);
   }
+  /* ── 숨김(삭제) ─────────────────────────
+   * 숨긴 상품은 목록·건수·칩 어디에도 세지 않는다. 저장은 이 폰(localStorage)에만. */
+  function isHiddenId(hidden, id) {
+    return !!(hidden && id && Object.prototype.hasOwnProperty.call(hidden, id));
+  }
+  /** 숨긴 campaignId 를 뺀 배열 */
+  function filterHidden(rows, hidden) {
+    var out = [];
+    rows = rows || [];
+    for (var i = 0; i < rows.length; i++) {
+      if (!isHiddenId(hidden, rows[i].campaignId)) out.push(rows[i]);
+    }
+    return out;
+  }
+  /** 카테고리 칩 건수 — 상태 탭·검색어는 반영하고 카테고리 조건만 뺀 수치 */
+  function catCounts(rows, opts) {
+    var o = opts || {};
+    var base = { filter: o.filter, q: o.q, isDone: o.isDone };
+    var counts = { all: 0 };
+    rows = rows || [];
+    for (var i = 0; i < rows.length; i++) {
+      if (!matches(rows[i], base)) continue;
+      counts.all++;
+      var k = groupKeyOf(rows[i]);
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    return counts;
+  }
   function summarize(all, isDone) {
     var total = all.length, newCount = 0, doneCount = 0, best = 0;
     for (var i = 0; i < total; i++) {
@@ -139,13 +169,17 @@
     esc: esc, num: num, pct: pct, dday: dday, todayKST: todayKST, fmtUpdated: fmtUpdated,
     matches: matches, sortList: sortList, query: query, summarize: summarize, cardHTML: cardHTML,
     deepLink: deepLink, groupKeyOf: groupKeyOf, catLabel: catLabel, CAT_GROUPS: CAT_GROUPS,
-    STORE: STORE, PAGE: PAGE, KEEP_DAYS: KEEP_DAYS
+    isHiddenId: isHiddenId, filterHidden: filterHidden, catCounts: catCounts,
+    STORE: STORE, HIDDEN_STORE: HIDDEN_STORE, PAGE: PAGE, KEEP_DAYS: KEEP_DAYS, HIDDEN_DAYS: HIDDEN_DAYS
   };
 
   if (typeof document === "undefined") return; // 테스트(순수 함수) 환경
 
   /* ── 상태 ─────────────────────────────── */
-  var state = { data: null, filter: "all", cat: "all", sort: "rate", q: "", limit: PAGE, applied: loadApplied() };
+  var state = {
+    data: null, filter: "all", cat: "all", sort: "rate", q: "", limit: PAGE,
+    applied: loadApplied(), hidden: loadHidden()
+  };
   var $ = function (id) { return document.getElementById(id); };
   var list = $("list"), more = $("more"), emptyBox = $("empty"), toastEl = $("toast");
 
@@ -170,6 +204,32 @@
     else delete state.applied[id];
     saveApplied();
   }
+
+  /* ── 숨김 저장소 ─────────────────────── */
+  function loadHidden() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(HIDDEN_STORE) || "{}");
+      var cut = Date.now() - HIDDEN_DAYS * 864e5, out = {}, dropped = false;
+      Object.keys(raw).forEach(function (k) {
+        var at = raw[k] && raw[k].at ? Date.parse(raw[k].at) : 0;
+        if (!at || at > cut) out[k] = raw[k] || { at: new Date().toISOString() };
+        else dropped = true;
+      });
+      if (dropped) localStorage.setItem(HIDDEN_STORE, JSON.stringify(out)); // 오래된 숨김은 저장소에서도 정리
+      return out;
+    } catch (e) { return {}; }
+  }
+  function saveHidden() {
+    try { localStorage.setItem(HIDDEN_STORE, JSON.stringify(state.hidden)); } catch (e) { /* 사생활 모드 등 */ }
+  }
+  function isHidden(id) { return isHiddenId(state.hidden, id); }
+  function setHidden(id, on) {
+    if (!id) return;
+    if (on) state.hidden[id] = { at: new Date().toISOString() };
+    else delete state.hidden[id];
+    saveHidden();
+  }
+  function clearHidden() { state.hidden = {}; saveHidden(); }
 
   /* ── 데이터 불러오기 ──────────────────── */
   function load() {
@@ -198,6 +258,9 @@
   }
 
   function allCampaigns() { return (state.data && state.data.campaigns) || []; }
+  /** 숨긴 상품을 뺀, 화면·건수에 실제로 쓰는 목록 */
+  function visibleCampaigns() { return filterHidden(allCampaigns(), state.hidden); }
+  function hiddenCount() { return allCampaigns().length - visibleCampaigns().length; }
 
   /* ── 렌더 ─────────────────────────────── */
   function cardHTML(c, done) {
@@ -225,6 +288,9 @@
       '<div class="row">' +
         '<span class="dday' + (dd.cls ? " " + dd.cls : "") + '">' + dd.label + "</span>" +
         (c.isNew ? '<span class="newtag">NEW</span>' : "") +
+        '<button class="del" type="button" data-hide="' + esc(c.campaignId) + '" ' +
+          'aria-label="이 상품을 목록에서 숨기기" title="목록에서 숨기기">' +
+          '<span class="x" aria-hidden="true">✕</span>숨기기</button>' +
       "</div>" +
       '<div class="actions">' +
         '<a class="open" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" ' +
@@ -236,7 +302,7 @@
   }
 
   function renderSummary() {
-    var all = allCampaigns();
+    var all = visibleCampaigns();
     var s = summarize(all, isDone);
     $("stTotal").textContent = num(s.total);
     $("stNew").textContent = num(s.newCount);
@@ -252,11 +318,16 @@
     $("staleNote").hidden = !(upd && (Date.now() - Date.parse(upd)) > 30 * 3600e3);
 
     var d = state.data || {};
+    var hiddenN = hiddenCount();
     $("foot").innerHTML = "수집 " + num(d.rawTotalCount) + "건 중 내 기준 통과 " + num(d.totalCount) +
       "건 · 제외 " + num(d.excludedCount) + "건<br>" +
       "신규 기준: " + esc(d.newRule || "-") + "<br>" +
       "카테고리 칩은 카카오 대분류를 묶은 것이고, 분류가 없는 상품은 상품명으로 보정합니다.<br>" +
-      "신청 버튼을 누르면 그 상품을 ‘신청 완료’로 표시해 둡니다(이 폰에만 저장).";
+      "신청 버튼을 누르면 그 상품을 ‘신청 완료’로 표시해 둡니다(이 폰에만 저장).<br>" +
+      "카드의 [✕ 숨기기]를 누르면 목록에서 빠집니다(이 폰에만 저장)." +
+      (hiddenN
+        ? '<br><button type="button" class="linkish" data-unhide-all="1">숨긴 상품 ' + num(hiddenN) + "개 모두 되돌리기</button>"
+        : "");
   }
 
   function currentOpts() {
@@ -265,15 +336,7 @@
 
   /** 카테고리 칩 건수 — 상태 탭·검색어는 반영하고 카테고리 조건만 뺀 수치 */
   function renderCatCounts(opts) {
-    var all = allCampaigns();
-    var base = { filter: opts.filter, q: opts.q, isDone: opts.isDone };
-    var counts = { all: 0 };
-    for (var i = 0; i < all.length; i++) {
-      if (!matches(all[i], base)) continue;
-      counts.all++;
-      var k = groupKeyOf(all[i]);
-      counts[k] = (counts[k] || 0) + 1;
-    }
+    var counts = catCounts(visibleCampaigns(), opts);
     Array.prototype.forEach.call(document.querySelectorAll(".chip[data-cat]"), function (chip) {
       var key = chip.getAttribute("data-cat");
       var b = chip.querySelector("b");
@@ -289,7 +352,7 @@
 
   function renderList(reset) {
     var opts = currentOpts();
-    var rows = query(allCampaigns(), opts);
+    var rows = query(visibleCampaigns(), opts);
     renderCatCounts(opts);
     $("shownCount").textContent = rows.length + "건";
     if (reset) list.innerHTML = "";
@@ -317,14 +380,16 @@
         emptyBox.innerHTML = '<span class="big">🔍</span>' + esc(bits.join(" · ")) + " 조건에 맞는 상품이 없어요." +
           (state.filter === "new" ? "<br>보통 10~11시에 새 목록이 열립니다.<br>(데이터는 매일 10:05 갱신)" : "");
       } else {
-        emptyBox.innerHTML = '<span class="big">🔍</span>모집 중인 체험단이 없어요.';
+        emptyBox.innerHTML = (hiddenCount() && !allCampaigns().filter(function (c) { return !isHidden(c.campaignId); }).length)
+          ? '<span class="big">🗑️</span>모두 숨겼어요.<br>아래 <b>숨긴 상품 모두 되돌리기</b>로 다시 볼 수 있어요.'
+          : '<span class="big">🔍</span>모집 중인 체험단이 없어요.';
       }
     }
   }
 
   /* ── 토스트 ───────────────────────────── */
   var toastTimer = null, undoFn = null;
-  function toast(msg, actionLabel, action) {
+  function toast(msg, actionLabel, action, ms) {
     clearTimeout(toastTimer);
     toastEl.innerHTML = esc(msg) +
       (actionLabel ? '<button type="button">' + esc(actionLabel) + "</button>" : "");
@@ -335,9 +400,9 @@
         if (undoFn) undoFn();
         toastEl.classList.remove("show");
       });
-      toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 6000);
+      toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, ms || 6000);
     } else {
-      toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 2200);
+      toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, ms || 2200);
     }
   }
 
@@ -361,7 +426,7 @@
     }
   }
   function refreshCounts() {
-    var all = allCampaigns();
+    var all = visibleCampaigns();
     var doneCount = all.filter(function (c) { return isDone(c.campaignId); }).length;
     $("stDone").textContent = num(doneCount);
     $("cTodo").textContent = num(all.length - doneCount);
@@ -370,7 +435,25 @@
   }
 
   /* ── 이벤트 ───────────────────────────── */
+  function hideOne(id, actEl) {
+    setHidden(id, true);
+    if (actEl) actEl.classList.add("is-out");
+    toast("목록에서 숨겼어요", "되돌리기", function () {
+      setHidden(id, false);
+      renderAll();
+      toast("다시 보이게 했어요");
+    }, 4000);
+    // 짧은 페이드아웃 뒤 목록·건수·칩을 한 번에 다시 그린다
+    setTimeout(renderAll, 160);
+  }
+
   list.addEventListener("click", function (e) {
+    var hideBtn = e.target.closest("[data-hide]");
+    if (hideBtn) {
+      e.preventDefault();
+      hideOne(hideBtn.getAttribute("data-hide"), hideBtn.closest(".card"));
+      return;
+    }
     var openA = e.target.closest("[data-open]");
     if (openA) {
       var id = openA.getAttribute("data-open");
@@ -459,6 +542,15 @@
   more.addEventListener("click", function () {
     state.limit += PAGE;
     renderList(false);
+  });
+
+  /* 하단 안내의 ‘숨긴 상품 모두 되돌리기’ — innerHTML 이 다시 그려져도 살아있게 위임 */
+  $("foot").addEventListener("click", function (e) {
+    if (!e.target.closest("[data-unhide-all]")) return;
+    var n = hiddenCount();
+    clearHidden();
+    renderAll();
+    toast(n ? "숨긴 상품 " + num(n) + "개를 되돌렸어요" : "되돌릴 상품이 없어요");
   });
 
   $("refresh").addEventListener("click", load);
