@@ -1,9 +1,11 @@
 /* 카카오 체험단 피드 — 앱 껍데기는 캐시, 데이터(campaigns.json)는 네트워크 우선 */
-const CACHE = "kt-feed-v4"; // 카드 숨기기(✕)·실행 취소 토스트 반영(index.html·styles.css·app.js)을 위해 올림
+const CACHE = "kt-feed-v5"; // 카드 숨기기(✕)·실행 취소 토스트 반영 + 설치 시 HTTP 캐시 건너뛰기
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json", "./icons/icon.svg", "./icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache:"reload" 로 받아 HTTP 캐시에 남은 옛 파일이 새 캐시에 들어가지 않게 한다(배포 직후 흔한 사고)
+  const fresh = SHELL.map((u) => new Request(u, { cache: "reload" }));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(fresh)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
