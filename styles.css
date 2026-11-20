@@ -61,7 +61,7 @@ h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.3px}
   background:transparent;color:var(--muted);font-size:16px;display:none
 }
 .search.has-text .clear{display:block}
-.chips{display:flex;gap:7px;margin-top:9px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.chips{display:flex;gap:7px;margin-top:9px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
 .chips::-webkit-scrollbar{display:none}
 .chip{
   flex:0 0 auto; border:1px solid var(--line); background:#fff; color:#4a4a4a;
@@ -70,6 +70,16 @@ h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.3px}
 .chip b{font-weight:800}
 .chip.on{background:var(--ink); border-color:var(--ink); color:#fff}
 .chip.on.new-on{background:var(--kakao); border-color:var(--kakao); color:var(--ink)}
+.chips.cats{margin-top:6px; gap:6px}
+.chip.cat{
+  background:#f4f4f4; border-color:#efefef; color:#565656;
+  padding:5px 10px; font-size:12.5px; scroll-snap-align:start
+}
+.chip.cat b{color:#9c9c9c; font-size:11.5px; margin-left:1px}
+.chip.cat.on{background:#fff; border-color:var(--kakao-dark); color:var(--ink); box-shadow:0 0 0 2px rgba(254,229,0,.45)}
+.chip.cat.on b{color:#8a7a00}
+.chip.cat.is-empty{opacity:.45}
+.chip.cat.is-empty.on{opacity:1}
 .sortrow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}
 .count{font-size:12px;color:var(--muted);font-weight:600}
 select{

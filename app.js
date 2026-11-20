@@ -60,11 +60,42 @@
     return (k.getUTCMonth() + 1) + "/" + k.getUTCDate() + " " +
       p(k.getUTCHours()) + ":" + p(k.getUTCMinutes()) + " 갱신";
   }
-  /** 칩·검색 조건 통과 여부. opts = {filter, q, isDone} */
+  /* ── 카테고리 그룹 ───────────────────────
+   * 카카오 API 의 category 는 "대분류 · 소분류" 형태다(예: "리빙 · 주방·수입주방").
+   * 소분류는 47가지라 칩으로 쓰기엔 많아서 대분류를 8묶음으로 묶는다.
+   * 분류가 비어 있는 상품(핫팩·물주머니 등)은 상품명으로 보정하고, 그래도 모르면 기타로 보낸다.
+   * 어떤 상품도 빠지지 않게 하려고 기타 칩은 항상 둔다. */
+  var CAT_FALLBACK = /핫팩|물주머니|찜질|필로우|양말|방향제|쿠션|주방|침구|수납|인테리어|무드등/;
+  var CAT_GROUPS = [
+    { key: "all", label: "전체" },
+    { key: "food", label: "식품", re: /^식품/ },
+    { key: "living", label: "리빙", re: /^리빙/ },
+    { key: "digital", label: "디지털", re: /^디지털/ },
+    { key: "beauty", label: "뷰티", re: /^뷰티/ },
+    { key: "fashion", label: "패션", re: /^패션/ },
+    { key: "leisure", label: "레저", re: /^레저/ },
+    { key: "pet", label: "반려", re: /^(유아동·반려|반려|유아동)/ },
+    { key: "etc", label: "기타" }
+  ];
+  /** 상품이 속할 카테고리 그룹 키 */
+  function groupKeyOf(c) {
+    var cat = String((c && c.category) || "").trim();
+    for (var i = 1; i < CAT_GROUPS.length - 1; i++) {
+      if (CAT_GROUPS[i].re.test(cat)) return CAT_GROUPS[i].key;
+    }
+    if (!cat && CAT_FALLBACK.test(String((c && c.title) || ""))) return "living";
+    return "etc";
+  }
+  function catLabel(key) {
+    for (var i = 0; i < CAT_GROUPS.length; i++) if (CAT_GROUPS[i].key === key) return CAT_GROUPS[i].label;
+    return "기타";
+  }
+  /** 칩·검색 조건 통과 여부. opts = {filter, cat, q, isDone} */
   function matches(c, opts) {
     var o = opts || {};
     if (o.filter === "new" && !c.isNew) return false;
     if (o.filter === "todo" && o.isDone && o.isDone(c.campaignId)) return false;
+    if (o.cat && o.cat !== "all" && groupKeyOf(c) !== o.cat) return false;
     if (o.q) {
       var hay = (c.title + " " + (c.brandName || "") + " " + (c.category || "")).toLowerCase();
       if (hay.indexOf(o.q) === -1) return false;
@@ -107,14 +138,14 @@
   global.KT = {
     esc: esc, num: num, pct: pct, dday: dday, todayKST: todayKST, fmtUpdated: fmtUpdated,
     matches: matches, sortList: sortList, query: query, summarize: summarize, cardHTML: cardHTML,
-    deepLink: deepLink,
+    deepLink: deepLink, groupKeyOf: groupKeyOf, catLabel: catLabel, CAT_GROUPS: CAT_GROUPS,
     STORE: STORE, PAGE: PAGE, KEEP_DAYS: KEEP_DAYS
   };
 
   if (typeof document === "undefined") return; // 테스트(순수 함수) 환경
 
   /* ── 상태 ─────────────────────────────── */
-  var state = { data: null, filter: "all", sort: "rate", q: "", limit: PAGE, applied: loadApplied() };
+  var state = { data: null, filter: "all", cat: "all", sort: "rate", q: "", limit: PAGE, applied: loadApplied() };
   var $ = function (id) { return document.getElementById(id); };
   var list = $("list"), more = $("more"), emptyBox = $("empty"), toastEl = $("toast");
 
@@ -224,7 +255,31 @@
     $("foot").innerHTML = "수집 " + num(d.rawTotalCount) + "건 중 내 기준 통과 " + num(d.totalCount) +
       "건 · 제외 " + num(d.excludedCount) + "건<br>" +
       "신규 기준: " + esc(d.newRule || "-") + "<br>" +
+      "카테고리 칩은 카카오 대분류를 묶은 것이고, 분류가 없는 상품은 상품명으로 보정합니다.<br>" +
       "신청 버튼을 누르면 그 상품을 ‘신청 완료’로 표시해 둡니다(이 폰에만 저장).";
+  }
+
+  function currentOpts() {
+    return { filter: state.filter, cat: state.cat, q: state.q, sort: state.sort, isDone: isDone };
+  }
+
+  /** 카테고리 칩 건수 — 상태 탭·검색어는 반영하고 카테고리 조건만 뺀 수치 */
+  function renderCatCounts(opts) {
+    var all = allCampaigns();
+    var base = { filter: opts.filter, q: opts.q, isDone: opts.isDone };
+    var counts = { all: 0 };
+    for (var i = 0; i < all.length; i++) {
+      if (!matches(all[i], base)) continue;
+      counts.all++;
+      var k = groupKeyOf(all[i]);
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    Array.prototype.forEach.call(document.querySelectorAll(".chip[data-cat]"), function (chip) {
+      var key = chip.getAttribute("data-cat");
+      var b = chip.querySelector("b");
+      if (b) b.textContent = num(counts[key] || 0);
+      chip.classList.toggle("is-empty", !counts[key]);
+    });
   }
 
   function renderAll() {
@@ -233,9 +288,9 @@
   }
 
   function renderList(reset) {
-    var rows = query(allCampaigns(), {
-      filter: state.filter, q: state.q, sort: state.sort, isDone: isDone
-    });
+    var opts = currentOpts();
+    var rows = query(allCampaigns(), opts);
+    renderCatCounts(opts);
     $("shownCount").textContent = rows.length + "건";
     if (reset) list.innerHTML = "";
     var shown = rows.slice(0, state.limit);
@@ -249,11 +304,21 @@
 
     emptyBox.hidden = rows.length !== 0;
     if (!rows.length) {
-      emptyBox.innerHTML = '<span class="big">🔍</span>' +
-        (state.q ? "‘" + esc(state.q) + "’ 검색 결과가 없어요." :
-          state.filter === "new" ? "새로 올라온 체험단이 아직 없어요.<br>보통 10~11시에 새 목록이 열립니다.<br>(데이터는 매일 10:05 갱신)" :
-          state.filter === "todo" ? "미신청 상품이 없어요. 전부 체크되어 있습니다 🎉" :
-          "모집 중인 체험단이 없어요.");
+      var bits = [];
+      if (state.filter === "new") bits.push("오늘 신규");
+      if (state.filter === "todo") bits.push("미신청만");
+      if (state.cat !== "all") bits.push(catLabel(state.cat));
+      if (state.q) {
+        emptyBox.innerHTML = '<span class="big">🔍</span>‘' + esc(state.q) + "’ " +
+          (bits.length ? esc(bits.join(" · ")) + " 안에서 " : "") + "검색 결과가 없어요.";
+      } else if (state.filter === "todo" && state.cat === "all") {
+        emptyBox.innerHTML = '<span class="big">🎉</span>미신청 상품이 없어요.<br>전부 체크되어 있습니다.';
+      } else if (bits.length) {
+        emptyBox.innerHTML = '<span class="big">🔍</span>' + esc(bits.join(" · ")) + " 조건에 맞는 상품이 없어요." +
+          (state.filter === "new" ? "<br>보통 10~11시에 새 목록이 열립니다.<br>(데이터는 매일 10:05 갱신)" : "");
+      } else {
+        emptyBox.innerHTML = '<span class="big">🔍</span>모집 중인 체험단이 없어요.';
+      }
     }
   }
 
@@ -301,6 +366,7 @@
     $("stDone").textContent = num(doneCount);
     $("cTodo").textContent = num(all.length - doneCount);
     $("progressBar").style.width = (all.length ? (doneCount / all.length) * 100 : 0) + "%";
+    renderCatCounts(currentOpts());
   }
 
   /* ── 이벤트 ───────────────────────────── */
@@ -335,9 +401,9 @@
       next ? function () { setDone(cid, false); paintDone(cardEl, false); refreshCounts(); } : null);
   });
 
-  Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (chip) {
+  Array.prototype.forEach.call(document.querySelectorAll(".chip[data-filter]"), function (chip) {
     chip.addEventListener("click", function () {
-      Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (c) {
+      Array.prototype.forEach.call(document.querySelectorAll(".chip[data-filter]"), function (c) {
         c.classList.remove("on", "new-on");
         c.setAttribute("aria-selected", "false");
       });
@@ -345,6 +411,20 @@
       chip.classList.add("on");
       if (chip.getAttribute("data-filter") === "new") chip.classList.add("new-on");
       state.filter = chip.getAttribute("data-filter");
+      state.limit = PAGE;
+      renderList(true);
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".chip[data-cat]"), function (chip) {
+    chip.addEventListener("click", function () {
+      Array.prototype.forEach.call(document.querySelectorAll(".chip[data-cat]"), function (c) {
+        c.classList.remove("on");
+        c.setAttribute("aria-selected", "false");
+      });
+      chip.setAttribute("aria-selected", "true");
+      chip.classList.add("on");
+      state.cat = chip.getAttribute("data-cat");
       state.limit = PAGE;
       renderList(true);
     });

@@ -41,10 +41,21 @@
     <input id="q" type="search" placeholder="상품·브랜드 검색" autocomplete="off" enterkeyhint="search" aria-label="검색">
     <button class="clear" id="qClear" type="button" aria-label="검색어 지우기">✕</button>
   </div>
-  <div class="chips" role="tablist" aria-label="필터">
+  <div class="chips status" role="tablist" aria-label="상태 필터">
     <button class="chip on" type="button" role="tab" aria-selected="true" data-filter="all">전체 <b id="cAll">0</b></button>
     <button class="chip" type="button" role="tab" aria-selected="false" data-filter="new">오늘 신규 <b id="cNew">0</b></button>
     <button class="chip" type="button" role="tab" aria-selected="false" data-filter="todo">미신청만 <b id="cTodo">0</b></button>
+  </div>
+  <div class="chips cats" role="tablist" aria-label="카테고리 필터">
+    <button class="chip cat" type="button" role="tab" aria-selected="true" data-cat="all">전체 <b>0</b></button>
+    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="food">식품 <b>0</b></button>
+    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="living">리빙 <b>0</b></button>
+    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="digital">디지털 <b>0</b></button>
+    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="beauty">뷰티 <b>0</b></button>
+    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="fashion">패션 <b>0</b></button>
+    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="leisure">레저 <b>0</b></button>
+    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="pet">반려 <b>0</b></button>
+    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="etc">기타 <b>0</b></button>
   </div>
   <div class="sortrow">
     <span class="count" id="shownCount">–</span>
