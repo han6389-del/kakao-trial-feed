@@ -23,7 +23,7 @@
     <button id="refresh" type="button" aria-label="새로고침" title="새로고침">⟳</button>
   </div>
   <div class="stats">
-    <div class="stat"><span class="v" id="stTotal">–</span><span class="k">모집중</span></div>
+    <div class="stat"><span class="v" id="stScope">–</span><span class="k" id="stScopeLabel">미신청</span></div>
     <div class="stat"><span class="v" id="stNew">–</span><span class="k">신규</span></div>
     <div class="stat"><span class="v" id="stDone">0</span><span class="k">신청 완료</span></div>
     <div class="stat"><span class="v" id="stBest">–</span><span class="k">최고 확률</span></div>
@@ -41,10 +41,10 @@
     <input id="q" type="search" placeholder="상품·브랜드 검색" autocomplete="off" enterkeyhint="search" aria-label="검색">
     <button class="clear" id="qClear" type="button" aria-label="검색어 지우기">✕</button>
   </div>
-  <div class="chips status" role="tablist" aria-label="상태 필터">
+  <div class="chips status" role="tablist" aria-label="상태 탭">
     <button class="chip on" type="button" role="tab" aria-selected="true" data-filter="all">전체 <b id="cAll">0</b></button>
     <button class="chip" type="button" role="tab" aria-selected="false" data-filter="new">오늘 신규 <b id="cNew">0</b></button>
-    <button class="chip" type="button" role="tab" aria-selected="false" data-filter="todo">미신청만 <b id="cTodo">0</b></button>
+    <button class="chip" type="button" role="tab" aria-selected="false" data-filter="done">신청완료 <b id="cDone">0</b></button>
   </div>
   <div class="chips cats" role="tablist" aria-label="카테고리 필터">
     <button class="chip cat" type="button" role="tab" aria-selected="true" data-cat="all">전체 <b>0</b></button>

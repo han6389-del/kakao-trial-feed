@@ -92,17 +92,38 @@
     for (var i = 0; i < CAT_GROUPS.length; i++) if (CAT_GROUPS[i].key === key) return CAT_GROUPS[i].label;
     return "기타";
   }
+  /* ── 상태 탭 ───────────────────────────
+   * all  = 미신청 전체(완료 체크한 상품은 자동으로 빠진다)
+   * new  = 오늘 신규 중 미신청
+   * done = 신청완료로 체크한 상품만 모아 보기 */
+  var TABS = { all: "미신청", new: "오늘 신규", done: "신청완료" };
   /** 칩·검색 조건 통과 여부. opts = {filter, cat, q, isDone} */
   function matches(c, opts) {
     var o = opts || {};
-    if (o.filter === "new" && !c.isNew) return false;
-    if (o.filter === "todo" && o.isDone && o.isDone(c.campaignId)) return false;
+    var done = !!(o.isDone && o.isDone(c.campaignId));
+    if (o.filter === "done") {
+      if (!done) return false;              // 신청완료 탭은 체크한 것만
+    } else {
+      if (done) return false;               // 전체·오늘 신규 탭은 미신청만
+      if (o.filter === "new" && !c.isNew) return false;
+    }
     if (o.cat && o.cat !== "all" && groupKeyOf(c) !== o.cat) return false;
     if (o.q) {
       var hay = (c.title + " " + (c.brandName || "") + " " + (c.category || "")).toLowerCase();
       if (hay.indexOf(o.q) === -1) return false;
     }
     return true;
+  }
+  /** 탭 기준으로 거른 배열 — 상단 수치용이라 카테고리·검색어는 반영하지 않는다 */
+  function scopeRows(rows, filter, isDone) {
+    rows = rows || [];
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      var c = rows[i];
+      var done = !!(isDone && isDone(c.campaignId));
+      if (filter === "done" ? done : (!done && (filter !== "new" || !!c.isNew))) out.push(c);
+    }
+    return out;
   }
   /** 정렬된 새 배열 반환. rate | recruit | deadline */
   function sortList(rows, mode) {
@@ -168,6 +189,7 @@
   global.KT = {
     esc: esc, num: num, pct: pct, dday: dday, todayKST: todayKST, fmtUpdated: fmtUpdated,
     matches: matches, sortList: sortList, query: query, summarize: summarize, cardHTML: cardHTML,
+    scopeRows: scopeRows, TABS: TABS,
     deepLink: deepLink, groupKeyOf: groupKeyOf, catLabel: catLabel, CAT_GROUPS: CAT_GROUPS,
     isHiddenId: isHiddenId, filterHidden: filterHidden, catCounts: catCounts,
     STORE: STORE, HIDDEN_STORE: HIDDEN_STORE, PAGE: PAGE, KEEP_DAYS: KEEP_DAYS, HIDDEN_DAYS: HIDDEN_DAYS
@@ -263,9 +285,14 @@
   function hiddenCount() { return allCampaigns().length - visibleCampaigns().length; }
 
   /* ── 렌더 ─────────────────────────────── */
-  function cardHTML(c, done) {
+  function cardHTML(c, done, inDoneTab) {
     var dd = dday(c.endDate);
     done = !!done;
+    // 신청완료 탭에서는 '체크 해제(미신청으로)' 동작임이 보이게 문구를 바꿔 둔다
+    var toggleText = done ? (inDoneTab ? "↩ 미신청으로" : "✓ 완료") : "완료 체크";
+    var toggleLabel = done
+      ? (inDoneTab ? "신청 완료를 해제하고 미신청으로 되돌리기" : "신청 완료 표시 해제")
+      : "이 상품을 신청완료로 옮기기";
     // 캐시·구버전 JSON 의 mobileUrl 이 홈으로 떨어지는 예전 주소여도, campaignId 로 앱 딥링크를 다시 만든다.
     var href = c.campaignId ? deepLink(c.campaignId) : (c.mobileUrl || "");
     var img = c.imageUrl
@@ -296,22 +323,28 @@
         '<a class="open" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" ' +
           'data-open="' + esc(c.campaignId) + '">모바일 신청 열기</a>' +
         '<button class="toggle" type="button" data-toggle="' + esc(c.campaignId) + '" aria-pressed="' +
-          (done ? "true" : "false") + '">' + (done ? "✓ 완료" : "완료 체크") + "</button>" +
+          (done ? "true" : "false") + '" aria-label="' + esc(toggleLabel) + '" title="' + esc(toggleLabel) +
+          '">' + esc(toggleText) + "</button>" +
       "</div>" +
     "</article>";
   }
 
   function renderSummary() {
+    // 숨기기(✕)를 뺀 목록을 기준으로, 수치는 모두 현재 탭 기준으로 센다.
     var all = visibleCampaigns();
-    var s = summarize(all, isDone);
-    $("stTotal").textContent = num(s.total);
+    var doneAll = all.filter(function (c) { return isDone(c.campaignId); }).length;
+    var tabRows = scopeRows(all, state.filter, isDone);
+    var s = summarize(tabRows, isDone);
+    $("stScope").textContent = num(s.total);
+    $("stScopeLabel").textContent = TABS[state.filter] || "미신청";
     $("stNew").textContent = num(s.newCount);
-    $("stDone").textContent = num(s.doneCount);
-    $("stBest").textContent = all.length ? pct(s.best) : "–";
-    $("cAll").textContent = num(s.total);
-    $("cNew").textContent = num(s.newCount);
-    $("cTodo").textContent = num(s.total - s.doneCount);
-    $("progressBar").style.width = (s.total ? (s.doneCount / s.total) * 100 : 0) + "%";
+    $("stDone").textContent = num(doneAll);
+    $("stBest").textContent = tabRows.length ? pct(s.best) : "–";
+    // 탭 건수: 전체·오늘 신규는 미신청만, 신청완료는 체크한 것만
+    $("cAll").textContent = num(all.length - doneAll);
+    $("cNew").textContent = num(scopeRows(all, "new", isDone).length);
+    $("cDone").textContent = num(doneAll);
+    $("progressBar").style.width = (all.length ? (doneAll / all.length) * 100 : 0) + "%";
 
     var upd = state.data && state.data.updatedAt;
     $("updatedAt").textContent = fmtUpdated(upd);
@@ -323,7 +356,7 @@
       "건 · 제외 " + num(d.excludedCount) + "건<br>" +
       "신규 기준: " + esc(d.newRule || "-") + "<br>" +
       "카테고리 칩은 카카오 대분류를 묶은 것이고, 분류가 없는 상품은 상품명으로 보정합니다.<br>" +
-      "신청 버튼을 누르면 그 상품을 ‘신청 완료’로 표시해 둡니다(이 폰에만 저장).<br>" +
+      "[완료 체크]를 누르면 그 상품이 ‘신청완료’ 탭으로 옮겨집니다(이 폰에만 저장).<br>" +
       "카드의 [✕ 숨기기]를 누르면 목록에서 빠집니다(이 폰에만 저장)." +
       (hiddenN
         ? '<br><button type="button" class="linkish" data-unhide-all="1">숨긴 상품 ' + num(hiddenN) + "개 모두 되돌리기</button>"
@@ -359,7 +392,9 @@
     var shown = rows.slice(0, state.limit);
     var from = reset ? 0 : list.children.length;
     var frag = document.createElement("div");
-    frag.innerHTML = shown.slice(from).map(function (c) { return cardHTML(c, isDone(c.campaignId)); }).join("");
+    frag.innerHTML = shown.slice(from).map(function (c) {
+      return cardHTML(c, isDone(c.campaignId), state.filter === "done");
+    }).join("");
     while (frag.firstChild) list.appendChild(frag.firstChild);
 
     more.hidden = rows.length <= shown.length;
@@ -369,13 +404,17 @@
     if (!rows.length) {
       var bits = [];
       if (state.filter === "new") bits.push("오늘 신규");
-      if (state.filter === "todo") bits.push("미신청만");
+      if (state.filter === "done") bits.push("신청완료");
       if (state.cat !== "all") bits.push(catLabel(state.cat));
       if (state.q) {
         emptyBox.innerHTML = '<span class="big">🔍</span>‘' + esc(state.q) + "’ " +
           (bits.length ? esc(bits.join(" · ")) + " 안에서 " : "") + "검색 결과가 없어요.";
-      } else if (state.filter === "todo" && state.cat === "all") {
-        emptyBox.innerHTML = '<span class="big">🎉</span>미신청 상품이 없어요.<br>전부 체크되어 있습니다.';
+      } else if (state.filter === "done" && state.cat === "all") {
+        emptyBox.innerHTML = '<span class="big">🗂️</span>아직 신청완료로 옮긴 상품이 없어요.<br>' +
+          "카드의 <b>완료 체크</b>를 누르면 여기에 모입니다.";
+      } else if (state.filter === "all" && state.cat === "all") {
+        emptyBox.innerHTML = '<span class="big">🎉</span>미신청 상품이 없어요.<br>전부 완료 체크되어 있습니다.<br>' +
+          "<b>신청완료</b> 탭에서 체크를 해제하면 다시 올 수 있어요.";
       } else if (bits.length) {
         emptyBox.innerHTML = '<span class="big">🔍</span>' + esc(bits.join(" · ")) + " 조건에 맞는 상품이 없어요." +
           (state.filter === "new" ? "<br>보통 10~11시에 새 목록이 열립니다.<br>(데이터는 매일 10:05 갱신)" : "");
@@ -406,32 +445,19 @@
     }
   }
 
-  /* ── 카드 상태 그리기 ─────────────────── */
-  function paintDone(card, done) {
-    if (!card) return;
-    card.classList.toggle("is-done", done);
-    var btn = card.querySelector("[data-toggle]");
-    if (btn) {
-      btn.setAttribute("aria-pressed", done ? "true" : "false");
-      btn.textContent = done ? "✓ 완료" : "완료 체크";
-    }
-    var flag = card.querySelector(".doneflag");
-    if (done && !flag) {
-      flag = document.createElement("span");
-      flag.className = "doneflag";
-      flag.textContent = "신청 완료";
-      card.appendChild(flag);
-    } else if (!done && flag) {
-      flag.remove();
-    }
-  }
-  function refreshCounts() {
-    var all = visibleCampaigns();
-    var doneCount = all.filter(function (c) { return isDone(c.campaignId); }).length;
-    $("stDone").textContent = num(doneCount);
-    $("cTodo").textContent = num(all.length - doneCount);
-    $("progressBar").style.width = (all.length ? (doneCount / all.length) * 100 : 0) + "%";
-    renderCatCounts(currentOpts());
+  /* ── 완료 체크 / 해제 ──────────────────
+   * 체크하면 카드가 목록에서 바로 빠지고 ‘신청완료’ 탭에 모인다.
+   * 실수로 눌렀을 때는 4초 토스트의 [되돌리기]로 즉시 원래대로 돌린다. */
+  function moveCard(id, next, cardEl) {
+    setDone(id, next);
+    if (cardEl) cardEl.classList.add("is-out");
+    toast(next ? "신청완료로 옮겼어요" : "미신청으로 되돌렸어요", "되돌리기", function () {
+      setDone(id, !next);
+      renderAll();
+      toast(next ? "미신청으로 되돌렸어요" : "신청완료로 옮겼어요");
+    }, 4000);
+    // 짧은 페이드아웃 뒤 목록·탭 건수·카테고리 칩을 한 번에 다시 그린다
+    setTimeout(renderAll, 160);
   }
 
   /* ── 이벤트 ───────────────────────────── */
@@ -454,34 +480,20 @@
       hideOne(hideBtn.getAttribute("data-hide"), hideBtn.closest(".card"));
       return;
     }
+    // 완료 체크 / 해제 — 카드가 목록에서 빠지고 ‘신청완료’ 탭과 오가며 되돌린다
+    var btn = e.target.closest("[data-toggle]");
+    if (btn) {
+      e.preventDefault();
+      var cid = btn.getAttribute("data-toggle");
+      moveCard(cid, !isDone(cid), btn.closest(".card"));
+      return;
+    }
     var openA = e.target.closest("[data-open]");
     if (openA) {
       var id = openA.getAttribute("data-open");
-      if (!isDone(id)) {
-        var card = openA.closest(".card");
-        setDone(id, true);
-        paintDone(card, true);
-        refreshCounts();
-        toast("신청 완료로 체크했어요", "되돌리기", function () {
-          setDone(id, false);
-          paintDone(card, false);
-          refreshCounts();
-        });
-      }
+      if (!isDone(id)) moveCard(id, true, openA.closest(".card")); // 신청하러 나가면 신청완료로 옮겨 둔다
       return; // 링크는 그대로 새 탭으로 열린다
     }
-    var btn = e.target.closest("[data-toggle]");
-    if (!btn) return;
-    var cid = btn.getAttribute("data-toggle");
-    var next = !isDone(cid);
-    var cardEl = btn.closest(".card");
-    setDone(cid, next);
-    paintDone(cardEl, next);
-    refreshCounts();
-    if (state.filter === "todo" && next) { renderList(true); return; }
-    toast(next ? "신청 완료로 체크했어요" : "체크를 해제했어요",
-      next ? "되돌리기" : null,
-      next ? function () { setDone(cid, false); paintDone(cardEl, false); refreshCounts(); } : null);
   });
 
   Array.prototype.forEach.call(document.querySelectorAll(".chip[data-filter]"), function (chip) {
@@ -495,7 +507,7 @@
       if (chip.getAttribute("data-filter") === "new") chip.classList.add("new-on");
       state.filter = chip.getAttribute("data-filter");
       state.limit = PAGE;
-      renderList(true);
+      renderAll(); // 상단 수치도 탭 기준으로 다시 센다
     });
   });
 

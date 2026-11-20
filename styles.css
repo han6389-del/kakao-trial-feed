@@ -70,6 +70,7 @@ h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.3px}
 .chip b{font-weight:800}
 .chip.on{background:var(--ink); border-color:var(--ink); color:#fff}
 .chip.on.new-on{background:var(--kakao); border-color:var(--kakao); color:var(--ink)}
+.chip.on[data-filter="done"]{background:var(--green); border-color:var(--green); color:#fff}
 .chips.cats{margin-top:6px; gap:6px}
 .chip.cat{
   background:#f4f4f4; border-color:#efefef; color:#565656;

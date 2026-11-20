@@ -98,6 +98,64 @@
     !KT.isHiddenId({}, "toString") && !KT.isHiddenId(null, "abc"));
   ok("isHiddenId: 숨긴 id 는 true", KT.isHiddenId(hidden, rows[1].campaignId) === !!hidden[rows[1].campaignId]);
 
+  /* ── 상태 탭: 전체·오늘 신규는 미신청만, 신청완료는 체크한 것만 ── */
+  var applied = {};
+  var doneRows = [rows[0], rows[3]];
+  doneRows.forEach(function (c) { applied[c.campaignId] = { at: "2026-11-21T09:00:00+09:00" }; });
+  var isDone = function (id) { return !!applied[id]; };
+
+  var allRows = KT.scopeRows(rows, "all", isDone);
+  eq("탭: 전체 = 체크한 만큼 빠진 미신청", allRows.length, rows.length - doneRows.length);
+  ok("탭: 전체에 체크된 상품이 없다", allRows.every(function (c) { return !isDone(c.campaignId); }));
+  var newRows = KT.scopeRows(rows, "new", isDone);
+  ok("탭: 오늘 신규 = 미신청이면서 신규만",
+    newRows.every(function (c) { return c.isNew && !isDone(c.campaignId); }));
+  eq("탭: 오늘 신규 건수", newRows.length,
+    base.newCount - doneRows.filter(function (c) { return c.isNew; }).length);
+  var doneList = KT.scopeRows(rows, "done", isDone);
+  eq("탭: 신청완료 = 체크한 것만", doneList.length, doneRows.length);
+  ok("탭: 신청완료에 미체크 상품이 없다", doneList.every(function (c) { return isDone(c.campaignId); }));
+
+  eq("탭: query(all) 도 체크한 상품을 뺀다",
+    KT.query(rows, { filter: "all", cat: "all", sort: "rate", isDone: isDone }).length,
+    rows.length - doneRows.length);
+  eq("탭: query(new) 는 미신청 신규만",
+    KT.query(rows, { filter: "new", cat: "all", sort: "rate", isDone: isDone }).length, newRows.length);
+  eq("탭: query(done) 은 체크한 것만",
+    KT.query(rows, { filter: "done", cat: "all", sort: "rate", isDone: isDone }).length, doneRows.length);
+  eq("탭: query(done) + 카테고리 조건",
+    KT.query(rows, { filter: "done", cat: KT.groupKeyOf(doneRows[0]), sort: "rate", isDone: isDone }).length,
+    doneRows.filter(function (c) { return KT.groupKeyOf(c) === KT.groupKeyOf(doneRows[0]); }).length);
+
+  var chipAll = KT.catCounts(rows, { filter: "all", q: "", isDone: isDone });
+  eq("칩: 전체 탭 칩 합계 = 미신청 건수", chipAll.all, rows.length - doneRows.length);
+  var chipDone = KT.catCounts(rows, { filter: "done", q: "", isDone: isDone });
+  eq("칩: 신청완료 탭 칩 합계 = 신청완료 건수", chipDone.all, doneRows.length);
+  var chipDoneSum = 0;
+  KT.CAT_GROUPS.forEach(function (g) { if (g.key !== "all") chipDoneSum += chipDone[g.key] || 0; });
+  eq("칩: 신청완료 탭 카테고리 합계 = 칩 전체", chipDoneSum, chipDone.all);
+  ok("칩: 신청완료 탭 칩은 다른 상품을 세지 않는다",
+    KT.CAT_GROUPS.every(function (g) {
+      var want = doneRows.filter(function (c) { return KT.groupKeyOf(c) === g.key; }).length;
+      if (g.key === "all") want = doneRows.length;
+      return (chipDone[g.key] || 0) === want;
+    }));
+
+  var scopeSummary = KT.summarize(KT.filterHidden(KT.scopeRows(rows, "all", isDone), hidden), isDone);
+  eq("수치: 전체 탭 요약 = 미신청 건수", scopeSummary.total, rows.length - doneRows.length);
+  var doneSummary = KT.summarize(KT.scopeRows(rows, "done", isDone), isDone);
+  eq("수치: 신청완료 탭 요약 = 신청완료 건수", doneSummary.total, doneRows.length);
+
+  /* 카드 버튼 문구 — 신청완료 탭에서는 ‘미신청으로’ 되돌리기 */
+  ok("카드: 전체 탭 미신청 카드는 ‘완료 체크’", KT.cardHTML(rows[0], false).indexOf("완료 체크") !== -1);
+  ok("카드: 신청완료 탭 카드는 ‘미신청으로’ 해제 버튼",
+    KT.cardHTML(rows[0], true, true).indexOf("미신청으로") !== -1);
+  ok("카드: 신청완료 탭 카드도 data-toggle 유지",
+    KT.cardHTML(rows[0], true, true).indexOf('data-toggle="' + rows[0].campaignId + '"') !== -1);
+  ok("카드: 신청완료 탭 카드도 숨기기·신청 열기 유지",
+    KT.cardHTML(rows[0], true, true).indexOf("data-hide") !== -1 &&
+    KT.cardHTML(rows[0], true, true).indexOf("data-open") !== -1);
+
   global.__RESULT__ = {
     pass: pass, fail: fail, log: out,
     picked: pick.map(function (c) { return KT.groupKeyOf(c) + ":" + c.title.slice(0, 18); })

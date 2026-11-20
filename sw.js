@@ -1,5 +1,5 @@
 /* 카카오 체험단 피드 — 앱 껍데기는 캐시, 데이터(campaigns.json)는 네트워크 우선 */
-const CACHE = "kt-feed-v5"; // 카드 숨기기(✕)·실행 취소 토스트 반영 + 설치 시 HTTP 캐시 건너뛰기
+const CACHE = "kt-feed-v6"; // 상태 탭 개편(전체/오늘 신규/신청완료) 반영 + 설치 시 HTTP 캐시 건너뛰기
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json", "./icons/icon.svg", "./icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {

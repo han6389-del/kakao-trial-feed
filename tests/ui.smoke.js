@@ -1,5 +1,6 @@
-/* 카드 숨김 UI 흐름 스모크 테스트 — 최소 가짜 DOM 위에서 app.js 화면 블록을 실제로 돌린다.
- * 확인: 카드 삭제(숨김) → 목록/상단 건수/칩 건수 감소 → 되돌리기 → 원복, 하단 ‘모두 되돌리기’.
+/* 카드 숨김·완료 체크 UI 흐름 스모크 테스트 — 최소 가짜 DOM 위에서 app.js 화면 블록을 실제로 돌린다.
+ * 확인: 카드 숨기기 → 목록/상단 수치/칩 감소 → 되돌리기, 하단 ‘모두 되돌리기’,
+ *       완료 체크 → 목록에서 즉시 빠지고 ‘신청완료’ 탭으로 이동 → 되돌리기/해제, 탭별 수치.
  * 실행: python3 tests/run_ui_test.py */
 (function (global) {
   "use strict";
@@ -36,7 +37,7 @@
   Object.defineProperty(El.prototype, "firstChild", { get: function () { return this.children[0] || null; } });
 
   var byId = {};
-  var chipsFilter = ["all", "new", "todo"].map(function (k) { var e = new El("button"); e.attrs["data-filter"] = k; return e; });
+  var chipsFilter = ["all", "new", "done"].map(function (k) { var e = new El("button"); e.attrs["data-filter"] = k; return e; });
   var chipsCat = ["all", "food", "living", "digital", "beauty", "fashion", "leisure", "pet", "etc"].map(function (k) {
     var e = new El("button"), b = new El("b");
     e.tag = "chip"; e.attrs["data-cat"] = k; e._b = b;
@@ -81,15 +82,22 @@
   global.__RERUN__();
   var KT = global.KT;
   var A = function (id) { return byId[id]; };
+  /* 토스트 버튼은 한 번 뜰 때마다 새로 잡아 쓴다(리스너가 쌓이지 않게) */
+  function resetToast() { A("toast")._btn = null; }
 
   var rows = DATA.campaigns;
   var total0 = rows.length;
-  eq("초기: 모집중 = 데이터 건수", A("stTotal").textContent, KT.num(total0));
+  var new0 = rows.filter(function (c) { return c.isNew; }).length;
+  eq("초기: 전체 탭 = 미신청 건수", A("stScope").textContent, KT.num(total0));
+  eq("초기: 상단 수치 라벨", A("stScopeLabel").textContent, "미신청");
   eq("초기: 검색 노출 건수", A("shownCount").textContent, total0 + "건");
   var chips0 = chipsCat.map(function (c) { return c._b.textContent; });
-  eq("초기: 칩 전체 건수", A("cAll").textContent, KT.num(total0));
+  eq("초기: 전체 탭 건수", A("cAll").textContent, KT.num(total0));
+  eq("초기: 오늘 신규 탭 건수", A("cNew").textContent, KT.num(new0));
+  eq("초기: 신청완료 탭 건수", A("cDone").textContent, "0");
+  eq("초기: 신청 완료 수치", A("stDone").textContent, "0");
 
-  /* 숨기기 클릭 — list 위임 핸들러에 가짜 이벤트를 넣는다 */
+  /* ── 숨기기 클릭 — list 위임 핸들러에 가짜 이벤트를 넣는다 ── */
   var victim = rows[0], vCat = KT.groupKeyOf(victim);
   var card = new El("article");
   var delBtn = new El("button"); delBtn.attrs["data-hide"] = victim.campaignId; delBtn._closest = { ".card": card };
@@ -106,7 +114,7 @@
   A("list").fire("click", ev);
 
   eq("숨김: localStorage kt_hidden_v1 에 저장", !!JSON.parse(store["kt_hidden_v1"] || "{}")[victim.campaignId], true);
-  eq("숨김: 상단 모집중 1 감소", A("stTotal").textContent, KT.num(total0 - 1));
+  eq("숨김: 상단 미신청 1 감소", A("stScope").textContent, KT.num(total0 - 1));
   eq("숨김: 검색 노출 건수 1 감소", A("shownCount").textContent, (total0 - 1) + "건");
   eq("숨김: 상단 ‘전체’ 칩 1 감소", A("cAll").textContent, KT.num(total0 - 1));
   var chipNow = chipsCat.filter(function (c) { var k = c.attrs["data-cat"]; return k === vCat; })[0]._b.textContent;
@@ -120,7 +128,7 @@
   /* 되돌리기 — 토스트 버튼 클릭 */
   A("toast").querySelector("button").fire("click");
   eq("되돌리기: 저장소에서 제거", Object.keys(JSON.parse(store["kt_hidden_v1"] || "{}")).length, 0);
-  eq("되돌리기: 모집중 원복", A("stTotal").textContent, KT.num(total0));
+  eq("되돌리기: 미신청 원복", A("stScope").textContent, KT.num(total0));
   eq("되돌리기: 노출 건수 원복", A("shownCount").textContent, total0 + "건");
   eq("되돌리기: 칩 원복", A("cAll").textContent, KT.num(total0));
   eq("되돌리기: 칩 합계 원복",
@@ -134,22 +142,84 @@
       preventDefault: function () {}
     });
   });
-  eq("2건 숨김: 모집중 -2", A("stTotal").textContent, KT.num(total0 - 2));
+  eq("2건 숨김: 미신청 -2", A("stScope").textContent, KT.num(total0 - 2));
   ok("2건 숨김: 하단 ‘2개 모두 되돌리기’", A("foot").innerHTML.indexOf("2개") !== -1, A("foot").innerHTML);
   A("foot").fire("click", { target: { closest: function (sel) { return sel === "[data-unhide-all]" ? new El("button") : null; } } });
   eq("모두 되돌리기: 저장소 비움", Object.keys(JSON.parse(store["kt_hidden_v1"] || "{}")).length, 0);
-  eq("모두 되돌리기: 모집중 원복", A("stTotal").textContent, KT.num(total0));
+  eq("모두 되돌리기: 미신청 원복", A("stScope").textContent, KT.num(total0));
 
-  /* 저장된 숨김이 새로고침(재로드) 뒤에도 유지되는지 — app.js 를 한 번 더 로드 */
+  /* ── 완료 체크 — 목록에서 빠지고 ‘신청완료’ 탭으로 ── */
+  resetToast();
+  function toggleEv(id) {
+    var b = new El("button"); b.attrs["data-toggle"] = id; b._closest = { ".card": card };
+    return {
+      target: { closest: function (sel) { return sel === "[data-toggle]" ? b : (sel === ".card" ? card : null); } },
+      preventDefault: function () {}
+    };
+  }
+  var A_STORE = "ktApp.applied.v1";
+  A("list").fire("click", toggleEv(rows[0].campaignId));
+  eq("체크: localStorage 에 저장", !!JSON.parse(store[A_STORE] || "{}")[rows[0].campaignId], true);
+  eq("체크: 전체 탭에서 1건 빠짐", A("stScope").textContent, KT.num(total0 - 1));
+  eq("체크: 노출 건수 1 감소", A("shownCount").textContent, (total0 - 1) + "건");
+  eq("체크: 전체 탭 건수 1 감소", A("cAll").textContent, KT.num(total0 - 1));
+  eq("체크: 신청완료 탭 건수 1", A("cDone").textContent, "1");
+  eq("체크: 신청 완료 수치 1", A("stDone").textContent, "1");
+  ok("체크: 토스트 ‘신청완료로 옮겼어요 [되돌리기]’",
+    A("toast").innerHTML.indexOf("신청완료로 옮겼어요") !== -1 && A("toast").innerHTML.indexOf("되돌리기") !== -1,
+    A("toast").innerHTML);
+  A("toast").querySelector("button").fire("click");
+  eq("체크 되돌리기: 저장소에서 제거", Object.keys(JSON.parse(store[A_STORE] || "{}")).length, 0);
+  eq("체크 되돌리기: 전체 탭 원복", A("stScope").textContent, KT.num(total0));
+  eq("체크 되돌리기: 신청완료 0", A("cDone").textContent, "0");
+
+  /* 두 건 체크 → 신청완료 탭에서 모아 보기 */
+  resetToast();
+  A("list").fire("click", toggleEv(rows[1].campaignId));
+  A("list").fire("click", toggleEv(rows[2].campaignId));
+  eq("2건 체크: 전체 탭 건수 -2", A("cAll").textContent, KT.num(total0 - 2));
+  eq("2건 체크: 신청완료 탭 건수 2", A("cDone").textContent, "2");
+  chipsFilter.filter(function (c) { return c.attrs["data-filter"] === "done"; })[0].fire("click");
+  eq("신청완료 탭: 라벨", A("stScopeLabel").textContent, "신청완료");
+  eq("신청완료 탭: 상단 수치 = 완료 건수", A("stScope").textContent, "2");
+  eq("신청완료 탭: 목록 = 완료 건수", A("shownCount").textContent, "2건");
+  eq("신청완료 탭: 검색·카테고리 합계도 완료만",
+    chipsCat[0]._b.textContent, KT.num(2));
+  eq("신청완료 탭: 전체 탭 건수는 그대로", A("cAll").textContent, KT.num(total0 - 2));
+
+  /* 신청완료 탭에서 체크 해제 → 미신청으로 복귀 */
+  resetToast();
+  A("list").fire("click", toggleEv(rows[1].campaignId));
+  eq("해제: 저장소에서 제거", !JSON.parse(store[A_STORE] || "{}")[rows[1].campaignId], true);
+  eq("해제: 신청완료 탭 1건", A("shownCount").textContent, "1건");
+  eq("해제: 신청완료 건수 1", A("cDone").textContent, "1");
+  eq("해제: 전체 탭 건수 +1", A("cAll").textContent, KT.num(total0 - 1));
+  ok("해제: 토스트 ‘미신청으로 되돌렸어요’", A("toast").innerHTML.indexOf("미신청으로 되돌렸어요") !== -1, A("toast").innerHTML);
+
+  /* 전체 탭으로 돌아오면 해제한 상품이 다시 보인다 */
+  chipsFilter.filter(function (c) { return c.attrs["data-filter"] === "all"; })[0].fire("click");
+  eq("전체 탭 복귀: 노출 건수", A("shownCount").textContent, (total0 - 1) + "건");
+  eq("전체 탭 복귀: 라벨", A("stScopeLabel").textContent, "미신청");
+
+  /* ── 저장된 상태가 새로고침(재로드) 뒤에도 유지되는지 ── */
+  store[A_STORE] = "{}";
   var h = {}; h[rows[3].campaignId] = { at: new Date().toISOString() };
   store["kt_hidden_v1"] = JSON.stringify(h);
-  var before = A("stTotal").textContent;
+  A("list").listeners = {}; // 재로드로 핸들러가 겹치지 않게
   global.__RERUN__();
-  eq("재로드: 저장된 숨김이 반영", A("stTotal").textContent, KT.num(total0 - 1));
-  ok("재로드: 저장 전 값과 다르다", before !== A("stTotal").textContent);
+  eq("재로드: 저장된 숨김이 반영", A("stScope").textContent, KT.num(total0 - 1));
+  ok("재로드: 숨김 1건이 하단에 표시", A("foot").innerHTML.indexOf("숨긴 상품 1개") !== -1, A("foot").innerHTML);
+
+  /* 완료 체크도 재로드 뒤 유지되고 전체 탭에서는 빠져 있다 */
+  var ap = {}; ap[rows[4].campaignId] = { at: new Date().toISOString() };
+  store[A_STORE] = JSON.stringify(ap);
+  global.__RERUN__();
+  eq("재로드: 체크한 상품은 전체 탭에서 빠진다", A("stScope").textContent, KT.num(total0 - 2));
+  eq("재로드: 신청완료 건수 유지", A("cDone").textContent, "1");
 
   /* 오래된(60일 초과) 숨김은 정리된다 */
   store["kt_hidden_v1"] = JSON.stringify({ "old-id": { at: new Date(Date.now() - 61 * 864e5).toISOString() } });
+  store[A_STORE] = "{}";
   global.__RERUN__();
   eq("정리: 60일 지난 숨김은 버린다", Object.keys(JSON.parse(store["kt_hidden_v1"])).length, 0);
 
