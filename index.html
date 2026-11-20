@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FEE500">
+<meta name="description" content="카카오 선물하기 체험단 모집 목록을 당첨확률·마감일과 함께 보는 모바일 피드">
+<title>카카오 체험단 피드</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="체험단">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <div class="hd-row">
+    <div>
+      <h1>🎁 카카오 체험단</h1>
+      <p class="sub">선물하기 체험단 · 내 기준으로 이미 걸러둔 목록</p>
+    </div>
+    <button id="refresh" type="button" aria-label="새로고침" title="새로고침">⟳</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><span class="v" id="stTotal">–</span><span class="k">모집중</span></div>
+    <div class="stat"><span class="v" id="stNew">–</span><span class="k">신규</span></div>
+    <div class="stat"><span class="v" id="stDone">0</span><span class="k">신청 완료</span></div>
+    <div class="stat"><span class="v" id="stBest">–</span><span class="k">최고 확률</span></div>
+  </div>
+  <div class="meta">
+    <span id="updatedAt">불러오는 중…</span>
+    <span id="staleNote" class="warn" hidden>오래된 데이터</span>
+  </div>
+  <div class="bar" aria-hidden="true"><i id="progressBar"></i></div>
+</header>
+
+<div class="toolbar">
+  <div class="search" id="searchWrap">
+    <span class="ico" aria-hidden="true">🔍</span>
+    <input id="q" type="search" placeholder="상품·브랜드 검색" autocomplete="off" enterkeyhint="search" aria-label="검색">
+    <button class="clear" id="qClear" type="button" aria-label="검색어 지우기">✕</button>
+  </div>
+  <div class="chips" role="tablist" aria-label="필터">
+    <button class="chip on" type="button" role="tab" aria-selected="true" data-filter="all">전체 <b id="cAll">0</b></button>
+    <button class="chip" type="button" role="tab" aria-selected="false" data-filter="new">오늘 신규 <b id="cNew">0</b></button>
+    <button class="chip" type="button" role="tab" aria-selected="false" data-filter="todo">미신청만 <b id="cTodo">0</b></button>
+  </div>
+  <div class="sortrow">
+    <span class="count" id="shownCount">–</span>
+    <select id="sort" aria-label="정렬">
+      <option value="rate">당첨확률 높은순</option>
+      <option value="recruit">모집인원 많은순</option>
+      <option value="deadline">마감임박순</option>
+    </select>
+  </div>
+</div>
+
+<main id="list" aria-live="polite"></main>
+<div class="empty" id="empty" hidden></div>
+<button id="more" type="button" hidden>더 보기</button>
+<noscript><p class="empty">이 페이지는 자바스크립트가 필요합니다.</p></noscript>
+<footer id="foot"></footer>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+# ─────────────────────────────────────────────────────────────
+# 이 파일은 GitHub App 권한(workflows)이 없어 자동으로 올릴 수 없어 ci/ 에 두었습니다.
+# 활성화 방법 (둘 중 하나):
+#  1) GitHub 웹에서 이 파일 내용을 복사해 `.github/workflows/update.yml` 로 새 파일 추가
+#  2) 저장소 Settings → Actions → General 에서 Workflow permissions 를 Read and write 로 두고,
+#     로컬에서 `mkdir -p .github/workflows && cp ci/update.yml .github/workflows/update.yml` 후 push
+# ─────────────────────────────────────────────────────────────
+name: Update trial campaigns
+
+on:
+  schedule:
+    # 매일 10:05 KST (01:05 UTC). 새 체험단은 보통 10~11시에 열린다.
+    - cron: '5 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-campaigns
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch campaigns
+        run: python3 scripts/fetch_campaigns.py
+
+      - name: Commit and push data/campaigns.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/campaigns.json
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 생략"
+            exit 0
+          fi
+          git commit -m "chore: 체험단 목록 갱신 $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

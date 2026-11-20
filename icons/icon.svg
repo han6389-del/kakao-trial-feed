@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="카카오 체험단 피드">
+  <rect width="512" height="512" rx="112" fill="#FEE500"/>
+  <g fill="#191919">
+    <rect x="112" y="232" width="288" height="152" rx="22"/>
+    <rect x="94" y="186" width="324" height="66" rx="16"/>
+  </g>
+  <rect x="238" y="186" width="36" height="198" fill="#FEE500"/>
+  <g fill="none" stroke="#191919" stroke-width="24" stroke-linecap="round">
+    <path d="M256 190c-18-30-44-46-66-40-25 7-19 40 14 44 20 3 52-4 52-4z" fill="#FEE500"/>
+    <path d="M256 190c18-30 44-46 66-40 25 7 19 40-14 44-20 3-52-4-52-4z" fill="#FEE500"/>
+  </g>
+</svg>
