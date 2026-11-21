@@ -181,8 +181,8 @@ textarea.topic:focus{border-color:#a5a2f0;background:#fff;box-shadow:0 0 0 4px r
 .msg.leader .bubble{border-color:#ded2ff;background:linear-gradient(180deg,#fdfbff,#f8f4ff)}
 .bubble.final{border:1.5px solid #c4b5fd;box-shadow:0 8px 26px rgba(139,92,246,.16)}
 .final-badge{
-  display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;color:#6d28d9;
-  background:#efe7ff;border-radius:999px;padding:3px 8px;margin-bottom:7px;
+  display:block;width:-moz-fit-content;width:fit-content;font-size:10px;font-weight:800;color:#6d28d9;
+  background:#efe7ff;border-radius:999px;padding:3px 8px;margin-bottom:8px;
 }
 .msg.user{flex-direction:row-reverse}
 .msg.user .msg-body{max-width:88%}
@@ -982,6 +982,7 @@ async function playDemo(){
       await sleep(m.text[c] === "\n" ? 40 : 9);
     }
     txtEl.textContent = m.text;
+    state.session.messages.push({ role: m.role, text: m.text, round: m.round, final: !!isFinal, ts: Date.now() });
     scrollBottom(true);
     await sleep(260);
   }
