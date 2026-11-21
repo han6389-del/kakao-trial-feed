@@ -628,13 +628,13 @@ function showSetup(){
   $("subtitle").textContent = "아이디어 하나 던지면 4명이 토론해 줘요";
   window.scrollTo({top:0, behavior:"smooth"});
 }
-function newSession(topic, demo){
+function newSession(topic, demo, rounds){
   var s = {
     id: "s" + Date.now() + Math.random().toString(36).slice(2,6),
     topic: topic,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    rounds: state.rounds,
+    rounds: rounds || state.rounds || 2,
     demo: !!demo,
     messages: []
   };
@@ -751,7 +751,10 @@ function buildPrompt(role, round, total, mode, session){
 
 function geminiBody(system, userText, model){
   var cfg = { temperature: 0.95, maxOutputTokens: 900 };
-  if(model.indexOf("pro") === -1) cfg.thinkingConfig = { thinkingBudget: 0 };
+  // thinking 제어는 2.5 flash 계열만 지원 (pro는 끌 수 없고, 2.0은 미지원)
+  if(model.indexOf("2.5") !== -1 && model.indexOf("pro") === -1){
+    cfg.thinkingConfig = { thinkingBudget: 0 };
+  }
   return {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts: [{ text: userText }] }],
@@ -950,8 +953,7 @@ var DEMO = {
 async function playDemo(){
   if(state.running) return;
   state.running = true; state.demo = true; state.stopped = false;
-  state.rounds = 2;
-  newSession(DEMO.topic, true);
+  newSession(DEMO.topic, true, 2);
   $("topicInput").value = DEMO.topic; updateTopicCount();
   showChat();
   setRunningUI(false);
@@ -1176,7 +1178,7 @@ function startDebate(){
   if(!activePersonas().length){ toast("역할을 하나 이상 켜 주세요"); return; }
   state.abort = new AbortController();
   state.rounds = state.rounds || 2;
-  newSession(topic, false);
+  newSession(topic, false, state.rounds);
   persistSession();
   showChat();
   runDebate(1).catch(function(err){
