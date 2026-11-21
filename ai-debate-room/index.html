@@ -560,19 +560,19 @@ function activePersonas(){
 
 /* ================= setup view ================= */
 var SAMPLES = [
-  "주말에 동네에 1인 무인 카페를 열면 어떨까?",
-  "회사 잔업을 줄일 방법이 있을까?",
-  "AI로 매달 30만원 부수입 만들기",
-  "중고차 대신 경차 리스, 현명할까?"
+  { l:"무인 카페 창업", t:"주말에 동네에 1인 무인 카페를 열면 어떨까?" },
+  { l:"잔업 줄이기", t:"회사 잔업을 줄일 방법이 있을까?" },
+  { l:"AI 부수입", t:"AI로 매달 30만원 부수입 만들기" },
+  { l:"경차 리스", t:"중고차 대신 경차 리스, 현명할까?" }
 ];
-var SAMPLE_TOPICS = SAMPLES;
 
 function renderChips(){
   var box = $("sampleChips"); box.innerHTML="";
-  SAMPLE_TOPICS.forEach(function(t){
-    var b = el("button","chip", esc(t));
+  SAMPLES.forEach(function(s){
+    var b = el("button","chip", esc(s.l));
     b.type="button";
-    b.onclick = function(){ $("topicInput").value = t; updateTopicCount(); $("topicInput").focus(); };
+    b.title = s.t;
+    b.onclick = function(){ $("topicInput").value = s.t; updateTopicCount(); $("topicInput").focus(); };
     box.appendChild(b);
   });
 }
@@ -676,8 +676,8 @@ function addBubble(role, text, opts){
   return wrap;
 }
 function bubbleTextEl(wrap){ return wrap.querySelector(".txt-body") || wrap.querySelector(".bubble"); }
-function addTyping(role){
-  var wrap = addBubble(role, "", {});
+function addTyping(role, isFinal, round){
+  var wrap = addBubble(role, "", { final: !!isFinal, round: round || null });
   bubbleTextEl(wrap).innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
   scrollBottom();
   return wrap;
@@ -718,7 +718,7 @@ function systemFor(role){
   return base;
 }
 
-function buildPrompt(role, round, total, isFinal, session){
+function buildPrompt(role, round, total, mode, session){
   var lines = session.messages.map(function(m){
     if(m.role === "user") return "사용자: " + m.text;
     return PERSONAS[m.role].name + ": " + m.text;
@@ -731,12 +731,14 @@ function buildPrompt(role, round, total, isFinal, session){
     "[지금까지의 발언]\n" + (transcript || "(아직 없음)")
   ];
   if(role === "leader"){
-    if(isFinal){
+    if(mode === "final"){
       out.push("지금이 마지막이다. 아래 형식으로 최종 정리해라.\n" +
         "① 한 줄 결론: (찬성/반대/조건부 + 이유 한 문장)\n" +
         "② 핵심 근거 2가지\n" +
         "③ 추천 액션 3가지: 각각 '무엇을 · 언제까지 · 예상 비용/시간'이 드러나는 한 줄\n" +
         "④ 다음 단계: 한 줄");
+    }else if(mode === "followup"){
+      out.push("사용자가 방금 추가 질문을 던졌다. 팀장으로서 그 질문에 답해라. 필요하면 참가자 발언을 이름으로 인용하고, 3~5문장 안에서 핵심만 말해라.");
     }else{
       out.push("이번 라운드를 정리해라. 쟁점 2~3개를 짧게 묶고, 어느 쪽 주장이 더 설득력 있었는지 한 줄로 판정한 뒤, 다음 라운드에서 다뤄야 할 질문 1개를 던져라.");
     }
@@ -826,20 +828,21 @@ function friendlyError(err){
 }
 
 /* ================= debate runner ================= */
-function pushMessage(role, text, round){
+function pushMessage(role, text, round, isFinal){
   var s = state.session;
-  s.messages.push({ role: role, text: text, round: round, ts: Date.now() });
+  s.messages.push({ role: role, text: text, round: round, final: !!isFinal, ts: Date.now() });
   s.updatedAt = Date.now();
   persistSession();
 }
 
-async function speak(role, round, total, isFinal){
+async function speak(role, round, total, mode){
   if(state.stopped) return false;
-  var wrap = addTyping(role);
+  var isFinal = (mode === "final");
+  var wrap = addTyping(role, isFinal, round);
   var txtEl = bubbleTextEl(wrap);
   var acc = "";
   var started = false;
-  var prompt = buildPrompt(role, round, total, isFinal, state.session);
+  var prompt = buildPrompt(role, round, total, mode || "round", state.session);
   try{
     var text = await streamGemini(role, prompt, function(chunk, full){
       acc = full;
@@ -853,16 +856,9 @@ async function speak(role, round, total, isFinal){
       addErrorCard("빈 응답이 왔어요", "모델이 답을 만들지 못했어요. 한 번 더 시도해 보세요.");
       return false;
     }
-    if(isFinal){
-      var fresh = addBubble(role, acc, { final:true, round:round });
-      wrap.remove();
-      txtEl = bubbleTextEl(fresh);
-      wrap = fresh;
-    }else{
-      addRoundTag(wrap, round);
-    }
+    if(!isFinal) addRoundTag(wrap, round);
     txtEl.textContent = acc;
-    pushMessage(role, acc, round);
+    pushMessage(role, acc, round, isFinal);
     scrollBottom(true);
     return true;
   }catch(err){
@@ -871,7 +867,7 @@ async function speak(role, round, total, isFinal){
     var f = friendlyError(err);
     addErrorCard(f[0], f[1], [
       { label:"⚙️ 설정 열기", onClick: openSettings },
-      { label:"다시 시도", onClick: function(){ $("messages").querySelectorAll(".err-card").length; retryFromHere(role, round, total, isFinal); } }
+      { label:"이 라운드 다시", onClick: function(){ retryFrom(round); } }
     ]);
     state.stopped = true;
     return false;
@@ -883,14 +879,14 @@ function addRoundTag(wrap, round){
     var sp = el("span", null, round + "R"); nm.appendChild(sp);
   }
 }
-function retryFromHere(){
-  // 마지막 에러 이후 같은 주제로 이어서 재시도: 간단히 남은 라운드를 다시 돌린다
-  if(!state.session) return;
+/* 에러 뒤 같은 라운드를 깨끗이 지우고 재시도 */
+function retryFrom(round){
   var s = state.session;
-  var done = s.messages.length;
-  var lastRound = 1;
-  s.messages.forEach(function(m){ if(m.round) lastRound = Math.max(lastRound, m.round); });
-  runDebate(lastRound).catch(function(){});
+  if(!s) return;
+  s.messages = s.messages.filter(function(m){ return (m.round || 0) < round; });
+  state.stopped = false;
+  renderAll();
+  runDebate(round).catch(function(){});
 }
 
 async function runDebate(startRound){
@@ -901,6 +897,7 @@ async function runDebate(startRound){
   state.running = true;
   state.stopped = false;
   setRunningUI(true);
+  $("subtitle").textContent = "AI 4명이 토론 중…";
   for(var r = startRound || 1; r <= total; r++){
     if(state.stopped) break;
     if(!(startRound && r === startRound && s.messages.some(function(m){ return m.round === r; }))){
@@ -908,20 +905,21 @@ async function runDebate(startRound){
     }
     for(var i=0;i<actives.length;i++){
       if(state.stopped) break;
-      var ok = await speak(actives[i], r, total, false);
+      var ok = await speak(actives[i], r, total, "round");
       if(!ok && state.stopped) break;
       await sleep(180);
     }
     if(state.stopped) break;
     if(settings.on.leader){
       var finalRound = (r === total);
-      await speak("leader", r, total, finalRound);
+      await speak("leader", r, total, finalRound ? "final" : "round");
     }
     if(r === total) break;
     await sleep(200);
   }
   state.running = false;
   setRunningUI(false);
+  if(!s.demo) $("subtitle").textContent = state.stopped ? "토론 멈춤 — 이어서 물어도 돼요" : "토론 완료 · 아래에 이어서 질문해 보세요";
   if(!state.stopped && !s.demo) showDemoCTAIfNeeded();
 }
 function setRunningUI(run){
@@ -970,15 +968,10 @@ async function playDemo(){
       await sleep(320);
     }
     var isFinal = (m.role === "leader" && i === DEMO.msgs.length - 1);
-    var wrap = addTyping(m.role);
+    var wrap = addTyping(m.role, isFinal, m.round);
     await sleep(500 + Math.random()*280);
     var txtEl = bubbleTextEl(wrap);
-    if(isFinal){
-      var fresh = addBubble(m.role, "", { final:true, round:m.round });
-      wrap.remove(); wrap = fresh; txtEl = bubbleTextEl(fresh);
-    }else{
-      addRoundTag(wrap, m.round);
-    }
+    if(!isFinal) addRoundTag(wrap, m.round);
     txtEl.innerHTML = "";
     var buf = "";
     for(var c=0;c<m.text.length;c++){
@@ -995,7 +988,10 @@ async function playDemo(){
   state.running = false; state.demo = false;
   $("interject").disabled = false;
   $("btnSend").disabled = false;
-  if(!state.stopped) addDemoCTA();
+  if(!state.stopped){
+    $("subtitle").textContent = "샘플 데모 재생 완료 · 진짜로 해 볼까요?";
+    addDemoCTA();
+  }
 }
 function addDemoCTA(){
   var wrap = el("div","msg");
@@ -1089,6 +1085,13 @@ function loadSession(id){
   if(!s) return;
   state.session = JSON.parse(JSON.stringify(s));
   state.stopped = false;
+  $("subtitle").textContent = "지난 토론을 불러왔어요";
+  renderAll();
+  showChat();
+  window.scrollTo({ top: document.body.scrollHeight, behavior:"auto" });
+}
+function renderAll(){
+  var s = state.session; if(!s) return;
   $("messages").innerHTML = "";
   $("chatTopic").textContent = s.topic;
   renderChatMeta();
@@ -1096,13 +1099,10 @@ function loadSession(id){
   s.messages.forEach(function(m){
     if(m.round && m.round !== lastRound && m.role !== "user"){
       lastRound = m.round;
-      addRoundSep(m.round, s.rounds||null);
+      addRoundSep(m.round, s.rounds || null);
     }
-    var isFinalLeader = (m.role === "leader" && m.round === (s.rounds||1));
-    addBubble(m.role, m.text, { round: m.role === "user" ? null : m.round, final: isFinalLeader });
+    addBubble(m.role, m.text, { round: m.role === "user" ? null : m.round, final: !!m.final });
   });
-  showChat();
-  window.scrollTo({ top: document.body.scrollHeight, behavior:"auto" });
 }
 
 /* ================= sheets ================= */
@@ -1188,11 +1188,15 @@ function sendInterject(){
   var v = $("interject").value.trim();
   if(!v) return;
   if(!state.session){ toast("먼저 토론을 시작해 주세요"); return; }
-  var wrap = addBubble("user", v, {});
+  if(state.session.demo){
+    toast("데모에서는 이어서 답할 수 없어요. 키를 넣으면 진짜로 토론해요!");
+    return;
+  }
+  addBubble("user", v, {});
   pushMessage("user", v, null);
   $("interject").value = "";
   scrollBottom(true);
-  if(!state.running && state.session.messages.length && !state.session.demo){
+  if(!state.running && state.session.messages.length){
     // 토론이 끝난 뒤 추가 질문: 팀장이 바로 답한다
     continueAfterDebate(v);
   }
@@ -1203,9 +1207,10 @@ async function continueAfterDebate(question){
   state.running = true; setRunningUI(true);
   var s = state.session;
   if(settings.on.leader){
-    await speak("leader", s.rounds, s.rounds, false);
+    await speak("leader", s.rounds, s.rounds, "followup");
   }
   state.running = false; setRunningUI(false);
+  $("subtitle").textContent = "토론 완료 · 아래에 이어서 질문해 보세요";
 }
 
 $("btnStart").onclick = startDebate;
