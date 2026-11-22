@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 리본 매듭(왼쪽 고리, 가운데 구멍) -->
+    <path
+        android:fillColor="#3C1E1E"
+        android:fillType="evenOdd"
+        android:pathData="M44.6,41.5 a4.9,5.2 0 1,0 9.8,0 a4.9,5.2 0 1,0 -9.8,0 Z M46.5,41.5 a2.16,2.16 0 1,0 4.32,0 a2.16,2.16 0 1,0 -4.32,0 Z" />
+
+    <!-- 리본 매듭(오른쪽 고리) -->
+    <path
+        android:fillColor="#3C1E1E"
+        android:fillType="evenOdd"
+        android:pathData="M53.6,41.5 a4.9,5.2 0 1,0 9.8,0 a4.9,5.2 0 1,0 -9.8,0 Z M57.2,41.5 a2.16,2.16 0 1,0 4.32,0 a2.16,2.16 0 1,0 -4.32,0 Z" />
+
+    <!-- 뚜껑 -->
+    <path
+        android:fillColor="#3C1E1E"
+        android:pathData="M33.3,44.8h19.55v8.2H33.3z" />
+    <path
+        android:fillColor="#3C1E1E"
+        android:pathData="M55.15,44.8H74.7v8.2H55.15z" />
+
+    <!-- 본체 -->
+    <path
+        android:fillColor="#3C1E1E"
+        android:pathData="M36.4,53h16.45v21.2H36.4z" />
+    <path
+        android:fillColor="#3C1E1E"
+        android:pathData="M55.15,53h16.45v21.2H55.15z" />
+</vector>

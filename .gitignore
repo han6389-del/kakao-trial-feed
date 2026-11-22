@@ -2,3 +2,11 @@ dist/
 .DS_Store
 __pycache__/
 *.pyc
+
+# Android 앱 빌드 산출물
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+android-app/.idea/
+*.iml

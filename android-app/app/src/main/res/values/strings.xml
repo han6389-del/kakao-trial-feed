@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">카카오 체험단</string>
+
+    <string name="notification_channel_name">신규 체험단 알림</string>
+    <string name="notification_channel_description">매일 오전 신규 체험단이 올라오면 알려드려요.</string>
+    <string name="notification_title">카카오 체험단</string>
+    <string name="notification_text">오늘 신규 체험단 %1$d건 도착!</string>
+    <string name="notification_big_text">오늘 신규 체험단 %1$d건 도착! 지금 신청 가능한 체험단은 모두 %2$d건이에요. 눌러서 확인하세요.</string>
+
+    <string name="error_load_title">피드를 불러오지 못했어요</string>
+    <string name="error_load_message">인터넷 연결을 확인하고 다시 시도해 주세요.</string>
+    <string name="error_load_retry">다시 시도</string>
+    <string name="error_no_app">이 링크를 열 수 있는 앱이 없어요.</string>
+
+    <string name="kakaotalk_missing_title">카카오톡이 필요해요</string>
+    <string name="kakaotalk_missing_message">체험단 신청은 카카오톡 선물하기에서 진행돼요. 카카오톡을 설치한 뒤 다시 눌러 주세요.</string>
+    <string name="kakaotalk_missing_install">설치하러 가기</string>
+</resources>

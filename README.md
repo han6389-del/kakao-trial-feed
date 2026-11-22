@@ -18,6 +18,8 @@
 | `scripts/fetch_campaigns.py` | 파트너 API 수집 + 필터 + JSON 생성 (표준 라이브러리만 사용) |
 | `ci/update.yml` | GitHub Actions 자동 갱신 워크플로 (아래 **자동 갱신 켜기** 참고) |
 | `scripts/build_standalone.py` | 호스팅 없이 열 수 있는 단일 HTML 파일 빌드 |
+| `android-app/` | 폰 설치용 Android 앱(WebView 래퍼 + 신규 체험단 알림) Gradle 프로젝트 |
+| `.github/workflows/android-apk.yml` | `android-app/**` 변경 시 debug APK 를 빌드해 아티팩트로 올리는 워크플로 |
 
 ## 보는 법
 
@@ -118,6 +120,14 @@ python3 tests/run_ui_test.py     # 화면 흐름: 가짜 DOM 에서 숨기기·�
 ```
 
 GitHub 웹에서 **Actions → Update trial campaigns → Run workflow** 로도 즉시 갱신할 수 있다.
+
+## 안드로이드 앱 (APK)
+
+`android-app/` 은 이 피드를 폰 앱으로 쓰기 위한 WebView 래퍼다(앱 이름 `카카오 체험단`, `com.kimgyeongmin.kakaotrialfeed`, minSdk 26 / targetSdk 34).
+
+- 매일 10:20(KST) 에 `data/campaigns.json` 을 확인해 신규 건수가 있으면 "오늘 신규 체험단 N건 도착!" 알림을 띄운다(Android 13+ 알림 권한 필요).
+- **[모바일 신청 열기]** 의 `gift-talk.kakao.com/appredirect` 링크와 `intent://` 딥링크를 카카오톡 앱으로 넘긴다.
+- 빌드는 GitHub Actions(`android-app/**` push 또는 수동 실행)가 하고, 결과는 `kakao-trial-feed-debug-apk` 아티팩트에서 받는다. 자세한 내용은 `android-app/README.md`.
 
 ## 참고
 
