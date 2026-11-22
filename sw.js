@@ -1,5 +1,5 @@
 /* 카카오 체험단 피드 — 앱 껍데기는 캐시, 데이터(campaigns.json)는 네트워크 우선 */
-const CACHE = "kt-feed-v15"; // 발표 당일 유지·발표 다음 날 자동 정리(신청완료 스냅샷) + 발표일 순 정렬 + 정리 안내 — 크롬·APK WebView 모두 새 캐시를 받게 버전을 올린다
+const CACHE = "kt-feed-v16"; // 🎉 당첨 탭·후기 챙기기(당첨은 자동 정리 제외) + 상태 탭 4개 — 크롬·APK WebView 모두 새 캐시를 받게 버전을 올린다
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json", "./icons/icon.svg", "./icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {

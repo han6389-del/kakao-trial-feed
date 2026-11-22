@@ -57,7 +57,7 @@
   Object.defineProperty(El.prototype, "firstChild", { get: function () { return this.children[0] || null; } });
 
   var byId = {};
-  var chipsFilter = ["all", "new", "done"].map(function (k) { var e = new El("button"); e.attrs["data-filter"] = k; return e; });
+  var chipsFilter = ["all", "new", "done", "won"].map(function (k) { var e = new El("button"); e.attrs["data-filter"] = k; return e; });
   var chipsCat = ["all", "food", "living", "digital", "beauty", "fashion", "leisure", "pet", "etc"].map(function (k) {
     var e = new El("button"), b = new El("b");
     e.tag = "chip"; e.attrs["data-cat"] = k; e._b = b;
@@ -673,6 +673,196 @@
   eq("정리: 건수도 줄어든다", A("cDone").textContent, "2");
   ok("정리: 알려 준다", A("toast").innerHTML.indexOf("정리했어요") !== -1, A("toast").innerHTML);
   chipsFilter.filter(function (c) { return c.attrs["data-filter"] === "all"; })[0].fire("click");
+
+  /* ══ 🎉 당첨 탭 · 후기 챙기기 ══════════
+   * 실제 흐름: 신청완료 카드 [🎉 당첨] → 당첨 탭으로 이동 → [✓ 후기 완료] 토글
+   *            → 새로고침 유지 → [당첨 취소] 로 신청완료 복귀. 발표가 지난 당첨은 자동 정리되지 않는다. */
+  function wonEv(id) {
+    var b = new El("button"); b.attrs["data-won"] = id; b._closest = { ".card": card };
+    return {
+      target: { closest: function (sel) { return sel === "[data-won]" ? b : (sel === ".card" ? card : null); } },
+      preventDefault: function () {}
+    };
+  }
+  function reviewEv(id) {
+    var b = new El("button"); b.attrs["data-review"] = id; b._closest = { ".card": card };
+    return {
+      target: { closest: function (sel) { return sel === "[data-review]" ? b : (sel === ".card" ? card : null); } },
+      preventDefault: function () {}
+    };
+  }
+  function unwonEv(id) {
+    var b = new El("button"); b.attrs["data-unwon"] = id; b._closest = { ".card": card };
+    return {
+      target: { closest: function (sel) { return sel === "[data-unwon]" ? b : (sel === ".card" ? card : null); } },
+      preventDefault: function () {}
+    };
+  }
+  function tabEv(name) {
+    return chipsFilter.filter(function (c) { return c.attrs["data-filter"] === name; })[0];
+  }
+  /* 발표일이 남은 상품을 골라 쓴다(발표가 지난 상품이면 당첨 취소 때 바로 정리된다) */
+  var FUT = null;
+  for (var fi = 0; fi < rows.length; fi++) {
+    if (KT.announceDay(rows[fi].endDate) >= KT.todayKST()) { FUT = rows[fi]; break; }
+  }
+  ok("당첨: 발표일이 남은 상품이 데이터에 있다", !!FUT);
+
+  var htmlW = global.__HTML__ || "";
+  ok("마크업: 🎉 당첨 탭이 있다",
+    /data-filter="won"/.test(htmlW) && /id="cWon"/.test(htmlW), htmlW.slice(0, 0) + "당첨 탭 없음");
+  ok("마크업: 상태 탭이 4개(전체·오늘 신규·신청완료·당첨)",
+    (htmlW.match(/data-filter="/g) || []).length === 4, (htmlW.match(/data-filter="/g) || []).length);
+  ok("마크업: 당첨 탭은 role=tab 목록 안에 있다",
+    /aria-label="상태 탭"/.test(htmlW) && htmlW.indexOf('data-filter="won"') > htmlW.indexOf('data-filter="done"'));
+
+  reloadWith(null);
+  eq("당첨: 처음에는 0건", A("cWon").textContent, "0");
+  eq("당첨: 처음에는 상단 신청 완료 0", A("stDone").textContent, "0");
+  tabEv("won").fire("click");
+  eq("당첨 탭: 빈 목록 안내", (function () {
+    return A("empty").innerHTML.indexOf("아직 당첨으로 표시한 상품이 없어요") !== -1;
+  })(), true);
+  tabEv("all").fire("click");
+
+  /* 신청완료로 옮긴 뒤 — 카드에 [🎉 당첨] 버튼 */
+  resetToast();
+  A("list").fire("click", toggleEv(FUT.campaignId));
+  eq("당첨 준비: 신청완료 1건", A("cDone").textContent, "1");
+  eq("당첨 준비: 당첨 0건", A("cWon").textContent, "0");
+  tabEv("done").fire("click");
+  ok("당첨 준비: 신청완료 카드에 [🎉 당첨] 버튼",
+    listCards().indexOf('data-won="' + FUT.campaignId + '"') !== -1 && listCards().indexOf("🎉 당첨") !== -1,
+    listCards().slice(0, 400));
+  ok("당첨 준비: 기존 [↩ 미신청으로] 도 남아 있다", listCards().indexOf('data-toggle="' + FUT.campaignId + '"') !== -1);
+
+  /* [🎉 당첨] 클릭 → 당첨 탭으로 이동 */
+  resetToast();
+  A("list").fire("click", wonEv(FUT.campaignId));
+  eq("당첨 클릭: 저장소에 won:true", JSON.parse(store[A_STORE] || "{}")[FUT.campaignId].won, true);
+  ok("당첨 클릭: wonAt 을 남긴다", !!JSON.parse(store[A_STORE] || "{}")[FUT.campaignId].wonAt);
+  eq("당첨 클릭: reviewed 는 false 로 시작", JSON.parse(store[A_STORE] || "{}")[FUT.campaignId].reviewed, false);
+  eq("당첨 클릭: 🎉 당첨 탭으로 이동", A("stScopeLabel").textContent, "당첨");
+  ok("당첨 클릭: 당첨 칩이 켜진다", tabEv("won").classList.contains("on"));
+  eq("당첨 클릭: 당첨 건수 1", A("cWon").textContent, "1");
+  eq("당첨 클릭: 신청완료 건수 0", A("cDone").textContent, "0");
+  eq("당첨 클릭: 상단 신청 완료 수치는 그대로 1", A("stDone").textContent, "1");
+  eq("당첨 클릭: 당첨 탭 목록 1건", A("shownCount").textContent, "1건");
+  eq("당첨 클릭: 상단 수치도 1", A("stScope").textContent, "1");
+  ok("당첨 카드: 🏆 당첨됨 배지", listCards().indexOf("🏆 당첨됨") !== -1, listCards().slice(0, 300));
+  ok("당첨 카드: 모바일 열기", listCards().indexOf("모바일 열기") !== -1);
+  ok("당첨 카드: ✓ 후기 완료 버튼", listCards().indexOf('data-review="' + FUT.campaignId + '"') !== -1 &&
+    listCards().indexOf("✓ 후기 완료") !== -1);
+  ok("당첨 카드: 당첨 취소 버튼", listCards().indexOf('data-unwon="' + FUT.campaignId + '"') !== -1 &&
+    listCards().indexOf("당첨 취소") !== -1);
+  ok("당첨 카드: 발표일 배지 대신 🏆", listCards().indexOf("announce") === -1);
+  ok("당첨 클릭: 토스트로 알린다", A("toast").innerHTML.indexOf("당첨") !== -1, A("toast").innerHTML);
+
+  /* [✓ 후기 완료] 토글 */
+  resetToast();
+  A("list").fire("click", reviewEv(FUT.campaignId));
+  eq("후기 완료: 저장소 reviewed:true", JSON.parse(store[A_STORE] || "{}")[FUT.campaignId].reviewed, true);
+  ok("후기 완료: ‘후기 완료됨’ 배지", listCards().indexOf("후기 완료됨") !== -1, listCards().slice(0, 300));
+  ok("후기 완료: 흐릿한 완료 표시(is-reviewed)", listCards().indexOf("is-reviewed") !== -1);
+  ok("후기 완료: 버튼이 눌린 상태", listCards().indexOf('aria-pressed="true"') !== -1);
+  eq("후기 완료: 당첨 탭에 그대로 1건", A("shownCount").textContent, "1건");
+  ok("후기 완료: 토스트", A("toast").innerHTML.indexOf("후기 완료") !== -1, A("toast").innerHTML);
+
+  /* 다시 누르면 해제 */
+  resetToast();
+  A("list").fire("click", reviewEv(FUT.campaignId));
+  eq("후기 완료 해제: 저장소 reviewed:false", JSON.parse(store[A_STORE] || "{}")[FUT.campaignId].reviewed, false);
+  ok("후기 완료 해제: 배지가 사라진다", listCards().indexOf("후기 완료됨") === -1);
+  ok("후기 완료 해제: 흐릿한 표시도 사라진다", listCards().indexOf("is-reviewed") === -1);
+
+  /* 새로고침 뒤에도 유지 */
+  resetToast();
+  A("list").fire("click", reviewEv(FUT.campaignId)); // 후기 완료로 되돌려 두고
+  reloadWith({ "ktApp.applied.v1": store[A_STORE] });
+  eq("새로고침: 당첨 건수 유지", A("cWon").textContent, "1");
+  eq("새로고침: 신청완료 건수는 0(당첨은 따로 센다)", A("cDone").textContent, "0");
+  eq("새로고침: 상단 신청 완료 수치 1", A("stDone").textContent, "1");
+  tabEv("won").fire("click");
+  eq("새로고침: 당첨 탭 1건", A("shownCount").textContent, "1건");
+  ok("새로고침: 후기 완료 표시 유지", listCards().indexOf("후기 완료됨") !== -1, listCards().slice(0, 300));
+  ok("새로고침: 🏆 배지 유지", listCards().indexOf("🏆 당첨됨") !== -1);
+
+  /* [당첨 취소] → 신청완료로 복귀 */
+  resetToast();
+  A("list").fire("click", unwonEv(FUT.campaignId));
+  eq("당첨 취소: 저장소에서 won 이 빠진다", JSON.parse(store[A_STORE] || "{}")[FUT.campaignId].won, undefined);
+  eq("당첨 취소: 기록 자체는 남는다(신청완료)", !!JSON.parse(store[A_STORE] || "{}")[FUT.campaignId], true);
+  eq("당첨 취소: 당첨 건수 0", A("cWon").textContent, "0");
+  eq("당첨 취소: 신청완료 1건", A("cDone").textContent, "1");
+  tabEv("done").fire("click");
+  eq("당첨 취소: 신청완료 탭에 다시 보인다", A("shownCount").textContent, "1건");
+  ok("당첨 취소: 토스트로 알린다", A("toast").innerHTML.indexOf("되돌") !== -1, A("toast").innerHTML);
+  A("toast").querySelector("button").fire("click"); // 되돌리기
+  eq("당첨 취소 되돌리기: 당첨으로 복귀", JSON.parse(store[A_STORE] || "{}")[FUT.campaignId].won, true);
+  eq("당첨 취소 되돌리기: 당첨 1건", A("cWon").textContent, "1");
+
+  /* 발표 다음 날 자동 정리에서 당첨은 보호 · 45일이 지난 당첨 기록도 남는다 */
+  var seedWonUi = {};
+  seedWonUi["wonPastUi0001"] = { at: new Date().toISOString(), title: "지난 발표 당첨",
+    endDate: isoDay(TD - 3), category: "식품 · 과자", won: true,
+    wonAt: new Date().toISOString(), reviewed: false };
+  seedWonUi["donePastUi0001"] = { at: new Date().toISOString(), title: "지난 발표 신청완료", endDate: isoDay(TD - 3) };
+  seedWonUi["wonOldUi000001"] = { at: new Date(Date.now() - 50 * 864e5).toISOString(), title: "오래된 당첨",
+    endDate: isoDay(TD - 20), won: true, reviewed: true };
+  reloadWith({ "ktApp.applied.v1": JSON.stringify(seedWonUi) });
+  var uiApplied = JSON.parse(store[A_STORE] || "{}");
+  eq("자동 정리: 발표가 지난 당첨은 지우지 않는다", !!uiApplied["wonPastUi0001"], true);
+  eq("자동 정리: 발표가 지난 신청완료는 지운다", !!uiApplied["donePastUi0001"], false);
+  eq("자동 정리: 45일 지난 당첨도 남긴다", !!uiApplied["wonOldUi000001"], true);
+  eq("자동 정리: 당첨 건수 2", A("cWon").textContent, "2");
+  tabEv("won").fire("click");
+  eq("자동 정리: 당첨 탭에 2건", A("shownCount").textContent, "2건");
+  ok("자동 정리: 목록에서 빠진 지난 당첨 카드가 보인다",
+    listCards().indexOf('data-id="wonPastUi0001"') !== -1, listCards().slice(0, 300));
+  ok("자동 정리: 마감일이 없어도 당첨이면 남는다", listCards().indexOf('data-id="wonOldUi000001"') !== -1);
+  ok("정렬: 후기 미작성이 위, 후기 완료가 아래",
+    A("list").children.length === 2 && A("list").children[0].attrs["data-id"] === "wonPastUi0001" &&
+    A("list").children[1].attrs["data-id"] === "wonOldUi000001",
+    A("list").children.map(function (c) { return c.attrs["data-id"]; }).join(","));
+
+  /* 기록 옮기기 — 당첨·후기 완료가 백업으로도 살아난다(KTF1 W·R 줄) */
+  var localWon = {};
+  localWon[FUT.campaignId] = { at: new Date().toISOString(), title: FUT.title, endDate: FUT.endDate,
+    category: FUT.category, won: true, wonAt: new Date().toISOString(), reviewed: true };
+  reloadWith({ "ktApp.applied.v1": JSON.stringify(localWon) });
+  eq("백업 준비: 당첨 1건", A("cWon").textContent, "1");
+  A("foot").fire("click", openEv());
+  A("transferCopy").fire("click");
+  var wonCopied = A("transferText").value;
+  ok("백업: W 줄과 R 줄이 실린다", /^W /m.test(wonCopied) && /^R /m.test(wonCopied) &&
+    wonCopied.indexOf(FUT.campaignId) !== -1, wonCopied.slice(0, 120));
+  ok("백업: 복사 안내에 당첨 건수", A("transferNote").textContent.indexOf("당첨") !== -1,
+    A("transferNote").textContent);
+  reloadWith(null);
+  A("foot").fire("click", openEv());
+  A("transferText").value = wonCopied;
+  A("transferMerge").fire("click");
+  var importedUi = JSON.parse(store[A_STORE] || "{}");
+  eq("백업: 불러오면 당첨이 살아난다", !!importedUi[FUT.campaignId].won, true);
+  eq("백업: 후기 완료도 살아난다", !!importedUi[FUT.campaignId].reviewed, true);
+  eq("백업: 당첨 건수 1", A("cWon").textContent, "1");
+  tabEv("won").fire("click");
+  ok("백업: 불러온 당첨 카드가 당첨 탭에 보인다",
+    listCards().indexOf('data-id="' + FUT.campaignId + '"') !== -1 && listCards().indexOf("후기 완료됨") !== -1);
+
+  /* 예전 백업(KTF1 + A 줄만)은 그대로 읽고, W 줄만 있는 백업도 당첨으로 읽는다 */
+  reloadWith(null);
+  A("foot").fire("click", openEv());
+  A("transferText").value = "KTF1\nA " + FUT.campaignId;
+  A("transferMerge").fire("click");
+  eq("예전 백업: 당첨 없이 신청완료로만 읽는다", A("cWon").textContent, "0");
+  eq("예전 백업: 신청완료 1건", A("cDone").textContent, "1");
+  reloadWith(null);
+  A("foot").fire("click", openEv());
+  A("transferText").value = "KTF1\nA " + FUT.campaignId + "\nW " + FUT.campaignId;
+  A("transferMerge").fire("click");
+  eq("W 줄 백업: 당첨 1건으로 읽는다", A("cWon").textContent, "1");
+  eq("W 줄 백업: 후기는 미작성으로 시작", !!JSON.parse(store[A_STORE] || "{}")[FUT.campaignId].reviewed, false);
 
   global.__RESULT__ = { pass: pass, fail: fail, log: out };
 })(this);

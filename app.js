@@ -121,15 +121,17 @@
     });
     return out;
   }
-  /** 발표 다음 날이 지난 신청완료 항목을 지운다(마감일이 없는 옛 항목은 안전하게 남긴다) */
+  /** 발표 다음 날이 지난 신청완료 항목을 지운다(마감일이 없는 옛 항목은 안전하게 남긴다).
+   *  당첨으로 표시한 항목(won)은 후기를 쓸 때까지 절대 지우지 않는다. */
   function pruneApplied(applied, nowMs) {
-    var today = todayKST(nowMs), out = {}, removed = [];
+    var today = todayKST(nowMs), out = {}, removed = [], keptWon = 0;
     Object.keys(applied || {}).forEach(function (id) {
       var e = applied[id] || {}, ann = announceDay(e.endDate);
+      if (e.won) { keptWon++; out[id] = e; return; }   // 🎉 당첨은 자동 정리 대상에서 제외
       if (!isNaN(ann) && ann < today) { removed.push(id); return; }
       out[id] = e;
     });
-    return { applied: out, removed: removed };
+    return { applied: out, removed: removed, keptWon: keptWon };
   }
   /** campaigns.json 에서 빠졌지만 발표일이 아직 남은 신청완료 기록을 카드 모양으로 되살린다 */
   function snapshotRows(applied, campaigns, nowMs) {
@@ -138,23 +140,82 @@
     Object.keys(applied || {}).forEach(function (id) {
       if (have[id]) return;                     // 지금 목록에 있으면 그 카드를 쓴다
       var e = applied[id] || {}, ann = announceDay(e.endDate);
-      if (isNaN(ann) || ann < today) return;    // 마감일이 없거나 발표가 끝난 옛 기록은 카드로 만들지 않는다
+      // 마감일이 없거나 발표가 끝난 옛 기록은 카드로 만들지 않는다 — 단 당첨은 후기를 쓸 때까지 남긴다
+      if (!e.won && (isNaN(ann) || ann < today)) return;
       if (!e.title) return;
       out.push({
         campaignId: id, title: e.title, brandName: e.brandName || "", imageUrl: e.imageUrl || "",
         category: e.category || "", recruitmentCount: Number(e.recruitmentCount) || 0,
         applicationCount: Number(e.applicationCount) || 0, winRate: Number(e.winRate) || 0,
-        endDate: e.endDate, mobileUrl: e.mobileUrl || "", isNew: false,
-        remainingDays: ann - today - 1, fromSnapshot: true
+        endDate: e.endDate || "", mobileUrl: e.mobileUrl || "", isNew: false,
+        remainingDays: isNaN(ann) ? null : ann - today - 1, fromSnapshot: true
       });
     });
     return out;
   }
-  /** 신청완료 탭에 실제로 보이는 목록 — 발표일 가까운 순(오늘 발표가 맨 위) */
+  /** 신청완료 탭에 실제로 보이는 목록 — 발표일 가까운 순(오늘 발표가 맨 위). 당첨은 ‘당첨’ 탭에서 본다. */
   function doneRows(applied, campaigns, hidden, nowMs) {
     var rows = filterHidden((campaigns || []).concat(snapshotRows(applied, campaigns, nowMs)), hidden)
-      .filter(function (c) { return !!(applied && applied[c.campaignId]); });
+      .filter(function (c) { return !!(applied && applied[c.campaignId]) && !isWonEntry(applied[c.campaignId]); });
     return sortList(rows, "announce");
+  }
+  /* ── 당첨 · 후기 관리 ───────────────────
+   * 신청완료 카드에서 [🎉 당첨]을 누르면 state.applied[id] 에 won / wonAt / reviewed 를 남기고
+   * ‘당첨’ 탭으로 옮긴다. 당첨으로 표시한 항목은 발표 다음 날 자동 정리(pruneApplied)에서 빠지고
+   * 스냅샷도 그대로 남아, 후기를 다 쓸 때까지 목록에 남아 있는다. */
+  function isWonEntry(e) { return !!(e && e.won); }
+  function isReviewedEntry(e) { return !!(e && e.won && e.reviewed); }
+  /** 항목 하나를 복사하면서 won / wonAt / reviewed 를 켜거나 끈다(원본 맵·항목은 그대로) */
+  function withWon(applied, id, on, nowMs) {
+    var out = {}, k;
+    for (k in applied || {}) {
+      if (Object.prototype.hasOwnProperty.call(applied, k)) out[k] = applied[k];
+    }
+    if (!id) return out;
+    var cur = out[id], next = {}, at = new Date(nowMs || Date.now()).toISOString();
+    if (cur) for (k in cur) if (Object.prototype.hasOwnProperty.call(cur, k)) next[k] = cur[k];
+    if (!next.at) next.at = at;
+    if (on) {
+      next.won = true;
+      next.wonAt = next.wonAt || at;
+      next.reviewed = !!next.reviewed;
+    } else {
+      delete next.won; delete next.wonAt; delete next.reviewed;
+    }
+    out[id] = next;
+    return out;
+  }
+  /** 후기 완료(reviewed) 토글 — 당첨으로 표시한 항목에만 붙는다 */
+  function withReviewed(applied, id, reviewed) {
+    var out = {}, k;
+    for (k in applied || {}) {
+      if (Object.prototype.hasOwnProperty.call(applied, k)) out[k] = applied[k];
+    }
+    if (!out[id] || !out[id].won) return out;
+    var next = {}, cur = out[id];
+    for (k in cur) if (Object.prototype.hasOwnProperty.call(cur, k)) next[k] = cur[k];
+    next.reviewed = !!reviewed;
+    out[id] = next;
+    return out;
+  }
+  /** 당첨 탭 정렬 — 후기 미작성 먼저, 그다음 발표일 가까운 순 */
+  function applyWonSort(rows, isReviewed, nowMs) {
+    var out = (rows || []).slice(), now = nowMs || Date.now();
+    out.sort(function (a, b) {
+      var ar = isReviewed && isReviewed(a.campaignId) ? 1 : 0;
+      var br = isReviewed && isReviewed(b.campaignId) ? 1 : 0;
+      if (ar !== br) return ar - br;                       // 후기 전 → 후기 완료
+      var x = announceRank(a.endDate, now), y = announceRank(b.endDate, now);
+      var dd = (x.rank === 2 && y.rank === 2) ? (y.days - x.days) : (x.days - y.days);
+      return (x.rank - y.rank) || dd || (b.winRate - a.winRate);
+    });
+    return out;
+  }
+  /** 당첨 탭에 실제로 보이는 목록 */
+  function wonRows(applied, campaigns, hidden, nowMs) {
+    var rows = filterHidden((campaigns || []).concat(snapshotRows(applied, campaigns, nowMs)), hidden)
+      .filter(function (c) { return !!(applied && applied[c.campaignId] && applied[c.campaignId].won); });
+    return applyWonSort(rows, function (id) { return isReviewedEntry(applied && applied[id]); }, nowMs);
   }
   function fmtUpdated(iso) {
     if (!iso) return "갱신 시각 없음";
@@ -199,17 +260,20 @@
    * all  = 미신청 전체(완료 체크한 상품은 자동으로 빠진다)
    * new  = 오늘 신규 중 미신청
    * done = 신청완료로 체크한 상품만 모아 보기 */
-  var TABS = { all: "미신청", new: "오늘 신규", done: "신청완료" };
-  /** 칩·검색 조건 통과 여부. opts = {filter, cat, q, isDone} */
+  var TABS = { all: "미신청", new: "오늘 신규", done: "신청완료", won: "당첨" };
+  /** 칩·검색 조건 통과 여부. opts = {filter, cat, q, isDone, isWon} */
   function matches(c, opts) {
     var o = opts || {};
     var done = !!(o.isDone && o.isDone(c.campaignId));
+    var won = !!(o.isWon && o.isWon(c.campaignId));
     if (o.filter === "done") {
-      if (!done) return false;              // 신청완료 탭은 체크한 것만
+      if (!done || won) return false;       // 신청완료 탭은 체크한 것 중 당첨 아닌 것(당첨은 ‘당첨’ 탭에서)
+    } else if (o.filter === "won") {
+      if (!won) return false;               // 당첨 탭은 당첨으로 표시한 것만
     } else {
       if (done) return false;               // 전체·오늘 신규 탭은 미신청만
       if (o.filter === "new" && !c.isNew) return false;
-      // 제외 키워드는 미신청 목록(전체·오늘 신규)에만 건다 — 신청완료 탭은 그대로 보여준다
+      // 제외 키워드는 미신청 목록(전체·오늘 신규)에만 건다 — 신청완료·당첨 탭은 그대로 보여준다
       if (o.exclude && excludedBy(c, o.exclude)) return false;
     }
     if (o.cat && o.cat !== "all" && groupKeyOf(c) !== o.cat) return false;
@@ -221,14 +285,17 @@
   }
   /** 탭 기준으로 거른 배열 — 상단 수치용이라 카테고리·검색어는 반영하지 않는다.
    *  exclude(제외 키워드 배열)를 주면 전체·오늘 신규에서만 걸러 낸다. */
-  function scopeRows(rows, filter, isDone, exclude) {
+  function scopeRows(rows, filter, isDone, exclude, isWon) {
     rows = rows || [];
     var out = [];
     for (var i = 0; i < rows.length; i++) {
       var c = rows[i];
       var done = !!(isDone && isDone(c.campaignId));
-      if (filter === "done" ? !done : (done || (filter === "new" && !c.isNew))) continue;
-      if (filter !== "done" && excludedBy(c, exclude)) continue;
+      var won = !!(isWon && isWon(c.campaignId));
+      if (filter === "done") { if (!done || won) continue; }
+      else if (filter === "won") { if (!won) continue; }
+      else if (done || (filter === "new" && !c.isNew)) continue;
+      if ((filter === "all" || filter === "new") && excludedBy(c, exclude)) continue;
       out.push(c);
     }
     return out;
@@ -263,7 +330,8 @@
   function query(all, opts) {
     var o = opts || {};
     var rows = (all || []).filter(function (c) { return matches(c, o); });
-    // 신청완료 탭은 정렬 선택과 무관하게 발표일 가까운 순으로 보여 준다
+    // 당첨 탭은 후기 미작성 먼저, 신청완료 탭은 정렬 선택과 무관하게 발표일 가까운 순
+    if (o.filter === "won") return applyWonSort(rows, o.isReviewed, Date.now());
     return sortList(rows, o.filter === "done" ? "announce" : o.sort);
   }
   /* ── 숨김(삭제) ─────────────────────────
@@ -283,7 +351,7 @@
   /** 카테고리 칩 건수 — 상태 탭·검색어는 반영하고 카테고리 조건만 뺀 수치 */
   function catCounts(rows, opts) {
     var o = opts || {};
-    var base = { filter: o.filter, q: o.q, isDone: o.isDone, exclude: o.exclude };
+    var base = { filter: o.filter, q: o.q, isDone: o.isDone, isWon: o.isWon, exclude: o.exclude };
     var counts = { all: 0 };
     rows = rows || [];
     for (var i = 0; i < rows.length; i++) {
@@ -315,7 +383,18 @@
   }
   function packRecords(applied, hidden, keywords) {
     var lines = [TRANSFER_HEAD];
-    [["A", recordIds(applied)], ["H", recordIds(hidden)]].forEach(function (pair) {
+    var appliedIds = recordIds(applied);
+    [["A", appliedIds], ["H", recordIds(hidden)]].forEach(function (pair) {
+      var ids = pair[1];
+      for (var i = 0; i < ids.length; i += TRANSFER_CHUNK) {
+        lines.push(pair[0] + " " + ids.slice(i, i + TRANSFER_CHUNK).join(","));
+      }
+    });
+    // 당첨(W)·후기 완료(R)는 줄을 더한다 — 예전 앱은 W·R 줄을 모르고 A 줄만 읽으므로 그대로 호환된다.
+    // 당첨 id 도 A 줄에 들어 있어서, W 줄을 모르는 곳에서도 ‘신청완료’로는 살아난다.
+    var wonIds = appliedIds.filter(function (id) { return isWonEntry(applied && applied[id]); });
+    var revIds = wonIds.filter(function (id) { return isReviewedEntry(applied && applied[id]); });
+    [["W", wonIds], ["R", revIds]].forEach(function (pair) {
       var ids = pair[1];
       for (var i = 0; i < ids.length; i += TRANSFER_CHUNK) {
         lines.push(pair[0] + " " + ids.slice(i, i + TRANSFER_CHUNK).join(","));
@@ -331,21 +410,32 @@
     }
     return lines.join("\n");
   }
-  /** 붙여넣은 글자 → {applied, hidden, keywords, hasKeywords}. 형식이 아니면 Error */
+  /** 붙여넣은 글자 → {applied, hidden, keywords, hasKeywords, hasWon}. 형식이 아니면 Error */
   function unpackRecords(text) {
     var s = String(text == null ? "" : text).replace(/^\uFEFF/, "").trim();
     if (!s) throw new Error("붙여넣은 내용이 비어 있어요.");
     var applied = {}, hidden = {}, keywords = [], read = 0, hasKeywords = false;
+    var wonIds = [], revIds = [];
     s.split(/\r?\n/).forEach(function (line) {
       line = line.trim();
       if (!line || line.charAt(0) === "#") return;
       if (/^KTF\d*$/i.test(line)) return; // 머리말
-      var m = /^([AHK]|applied|hidden|kw|keywords)\b[\s:|]*(.*)$/i.exec(line);
+      var m = /^([AHKWR]|applied|hidden|kw|keywords|won|reviewed|review)\b[\s:|]*(.*)$/i.exec(line);
       if (!m) return;
-      var kind = m[1].toUpperCase().charAt(0);
+      var word = m[1].toLowerCase();
+      var kind = word === "won" ? "W" : (word.indexOf("review") === 0 ? "R" : word.charAt(0).toUpperCase());
       if (kind === "K") {                // 제외 키워드 줄
         hasKeywords = true;
         parseKeywords(m[2]).forEach(function (k) { keywords.push(k); });
+        return;
+      }
+      if (kind === "W" || kind === "R") { // 당첨·후기 완료 줄
+        m[2].split(/[\s,]+/).forEach(function (id) {
+          id = id.trim();
+          if (!recordIdOk(id)) return;
+          (kind === "W" ? wonIds : revIds).push(id);
+          read++;
+        });
         return;
       }
       var dest = kind === "H" ? hidden : applied;
@@ -359,7 +449,21 @@
     if (!read && !hasKeywords) {
       throw new Error("옮길 기록을 찾지 못했어요. 복사한 글자를 ② 칸에 그대로 붙여넣어 주세요.");
     }
-    return { applied: applied, hidden: hidden, keywords: sanitizeKeywords(keywords), hasKeywords: hasKeywords };
+    // W·R 줄은 A 줄 뒤에 모아서 적용한다(당첨 id 가 A 줄에 빠져 있어도 당첨으로 살린다).
+    // W 줄만으로는 reviewed 를 건드리지 않는다 — 예전 백업을 합칠 때 이 기기의 ‘후기 완료’가 지워지지 않게.
+    var stamp = new Date().toISOString();
+    function touchWon(id, reviewed) {
+      var cur = applied[id] || { at: stamp }, next = {}, k;
+      for (k in cur) if (Object.prototype.hasOwnProperty.call(cur, k)) next[k] = cur[k];
+      next.won = true;
+      next.wonAt = next.wonAt || stamp;
+      if (reviewed) next.reviewed = true;
+      applied[id] = next;
+    }
+    wonIds.forEach(function (id) { touchWon(id, false); });
+    revIds.forEach(function (id) { touchWon(id, true); });
+    return { applied: applied, hidden: hidden, keywords: sanitizeKeywords(keywords),
+      hasKeywords: hasKeywords, hasWon: wonIds.length > 0 || revIds.length > 0 };
   }
   /** 기록 한 항목 합치기 — 붙여넣은 쪽(b)의 값이 이기되, b 에 없는 스냅샷 정보는 a 것을 남긴다 */
   function mergeEntry(a, b) {
@@ -493,6 +597,8 @@
     isHiddenId: isHiddenId, filterHidden: filterHidden, catCounts: catCounts,
     packRecords: packRecords, unpackRecords: unpackRecords, mergeRecords: mergeRecords,
     recordIds: recordIds, recordIdOk: recordIdOk, TRANSFER_HEAD: TRANSFER_HEAD,
+    isWonEntry: isWonEntry, isReviewedEntry: isReviewedEntry, withWon: withWon, withReviewed: withReviewed,
+    applyWonSort: applyWonSort, wonRows: wonRows,
     parseKeywords: parseKeywords, sanitizeKeywords: sanitizeKeywords, addKeywords: addKeywords,
     removeKeyword: removeKeyword, hitKeyword: hitKeyword, excludedBy: excludedBy,
     filterExcluded: filterExcluded, shouldPromptReturn: shouldPromptReturn,
@@ -518,7 +624,8 @@
       var cut = Date.now() - KEEP_DAYS * 864e5, out = {};
       Object.keys(raw).forEach(function (k) {
         var at = raw[k] && raw[k].at ? Date.parse(raw[k].at) : 0;
-        if (!at || at > cut) out[k] = raw[k] || { at: new Date().toISOString() };
+        // 당첨 기록은 기간과 상관없이 남긴다 — 후기를 쓸 때까지 사라지지 않아야 한다
+        if (!at || at > cut || (raw[k] && raw[k].won)) out[k] = raw[k] || { at: new Date().toISOString() };
       });
       return out;
     } catch (e) { return {}; }
@@ -527,10 +634,19 @@
     try { localStorage.setItem(STORE, JSON.stringify(state.applied)); } catch (e) { /* 사생활 모드 등 */ }
   }
   function isDone(id) { return !!state.applied[id]; }
+  function isWon(id) { return isWonEntry(state.applied[id]); }
+  function isReviewed(id) { return isReviewedEntry(state.applied[id]); }
   function setDone(id, done) {
     // 체크할 때 상품 정보를 함께 저장한다 — 목록에서 빠진 뒤에도 발표일까지 카드를 보여 주기 위해서다
-    if (done) state.applied[id] = snapshotOf(findCampaign(id));
-    else delete state.applied[id];
+    if (done) {
+      var prev = state.applied[id] || {}, snap = snapshotOf(findCampaign(id));
+      if (prev.won) { // 당첨 표시를 잃지 않게 그대로 옮긴다
+        snap.won = true;
+        snap.wonAt = prev.wonAt || new Date().toISOString();
+        snap.reviewed = !!prev.reviewed;
+      }
+      state.applied[id] = snap;
+    } else delete state.applied[id];
     saveApplied();
   }
   /** 저장된 신청완료를 지금 목록에 맞춘다 — ① 예전 체크분 정보 보강(hydrate) ② 발표가 끝난 것 정리(prune) */
@@ -616,14 +732,18 @@
   function hiddenCount() { return allCampaigns().length - visibleCampaigns().length; }
 
   /* ── 렌더 ─────────────────────────────── */
-  function cardHTML(c, done, inDoneTab, nowMs) {
+  function cardHTML(c, done, inDoneTab, nowMs, st) {
+    var s = st || {};
+    var won = !!s.won, reviewed = won && !!s.reviewed, inWonTab = won && !!s.wonTab;
     var dd = dday(c.endDate, nowMs);
-    done = !!done;
-    // 신청완료 카드에는 발표일 배지를 붙인다 — 오늘 발표면 강조
-    var ab = done ? announceBadge(c.endDate, nowMs) : null;
+    done = !!done || won;
+    // 신청완료 카드에는 발표일 배지를 붙인다 — 오늘 발표면 강조(당첨 카드는 🏆 배지가 대신한다)
+    var ab = done && !won ? announceBadge(c.endDate, nowMs) : null;
     var announceHTML = ab && ab.show
       ? '<span class="announce' + (ab.cls ? " " + ab.cls : "") + '">' + esc(ab.label) + "</span>"
       : "";
+    // 후기 완료 항목은 흐릿하게 두고 ‘후기 완료됨’ 배지로 알린다
+    var reviewHTML = reviewed ? '<span class="reviewflag">후기 완료됨</span>' : "";
     // 신청완료 탭에서는 '체크 해제(미신청으로)' 동작임이 보이게 문구를 바꿔 둔다
     var toggleText = done ? (inDoneTab ? "↩ 미신청으로" : "✓ 완료") : "완료 체크";
     var toggleLabel = done
@@ -635,8 +755,35 @@
       ? '<img class="thumb" loading="lazy" decoding="async" src="' + esc(c.imageUrl) + '" alt="" ' +
         'onerror="this.outerHTML=\'<div class=&quot;thumb-ph&quot;>🎁</div>\'">'
       : '<div class="thumb-ph">🎁</div>';
-    return '<article class="card' + (done ? " is-done" : "") + '" data-id="' + esc(c.campaignId) + '">' +
-      (done ? '<span class="doneflag">신청 완료</span>' : "") +
+    var flag = won ? '<span class="doneflag wonflag">🏆 당첨됨</span>'
+      : (done ? '<span class="doneflag">신청 완료</span>' : "");
+    var openA = '<a class="open" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" ' +
+      'data-open="' + esc(c.campaignId) + '">' + (inWonTab ? "모바일 열기" : "모바일 신청 열기") + "</a>";
+    var actions;
+    if (inWonTab) {
+      // 당첨 탭 — 후기 챙기기: 열기 · 후기 완료 토글 · 당첨 취소
+      actions = '<div class="actions won-actions">' + openA +
+        '<button class="review" type="button" data-review="' + esc(c.campaignId) + '" aria-pressed="' +
+          (reviewed ? "true" : "false") + '" aria-label="' +
+          esc(reviewed ? "후기 완료 표시 해제" : "후기 완료로 표시") + '" title="' +
+          esc(reviewed ? "후기 완료 표시 해제" : "후기 완료로 표시") + '">✓ 후기 완료</button>' +
+        '<button class="unwon" type="button" data-unwon="' + esc(c.campaignId) + '" ' +
+          'aria-label="당첨을 취소하고 신청완료로 되돌리기" title="당첨을 취소하고 신청완료로 되돌리기">당첨 취소</button>' +
+      "</div>";
+    } else {
+      actions = '<div class="actions">' + openA +
+        '<button class="toggle" type="button" data-toggle="' + esc(c.campaignId) + '" aria-pressed="' +
+          (done ? "true" : "false") + '" aria-label="' + esc(toggleLabel) + '" title="' + esc(toggleLabel) +
+          '">' + esc(toggleText) + "</button>" +
+        (inDoneTab && !won
+          ? '<button class="wonbtn" type="button" data-won="' + esc(c.campaignId) + '" ' +
+            'aria-label="당첨으로 표시하고 당첨 탭에서 후기 챙기기" title="당첨으로 표시하기">🎉 당첨</button>'
+          : "") +
+      "</div>";
+    }
+    return '<article class="card' + (done ? " is-done" : "") + (won ? " is-won" : "") +
+      (reviewed ? " is-reviewed" : "") + '" data-id="' + esc(c.campaignId) + '">' +
+      flag +
       '<div class="top">' + img +
         '<div class="info">' +
           '<div class="brand">' + esc(c.brandName || "브랜드") +
@@ -649,39 +796,37 @@
         "</div>" +
       "</div>" +
       '<div class="row">' +
-        '<span class="dday' + (dd.cls ? " " + dd.cls : "") + '">' + dd.label + "</span>" +
+        (won ? "" : '<span class="dday' + (dd.cls ? " " + dd.cls : "") + '">' + dd.label + "</span>") +
         announceHTML +
+        reviewHTML +
         (c.isNew ? '<span class="newtag">NEW</span>' : "") +
         '<button class="del" type="button" data-hide="' + esc(c.campaignId) + '" ' +
           'aria-label="이 상품을 목록에서 숨기기" title="목록에서 숨기기">' +
           '<span class="x" aria-hidden="true">✕</span>숨기기</button>' +
       "</div>" +
-      '<div class="actions">' +
-        '<a class="open" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" ' +
-          'data-open="' + esc(c.campaignId) + '">모바일 신청 열기</a>' +
-        '<button class="toggle" type="button" data-toggle="' + esc(c.campaignId) + '" aria-pressed="' +
-          (done ? "true" : "false") + '" aria-label="' + esc(toggleLabel) + '" title="' + esc(toggleLabel) +
-          '">' + esc(toggleText) + "</button>" +
-      "</div>" +
+      actions +
     "</article>";
   }
 
   function renderSummary() {
     // 숨기기(✕)를 뺀 목록을 기준으로, 수치는 모두 현재 탭 기준으로 센다.
     var all = visibleCampaigns();
-    var doneAll = all.filter(function (c) { return isDone(c.campaignId); }).length;
-    var tabRows = scopeRows(all, state.filter, isDone, state.excl);
+    var doneAll = all.filter(function (c) { return isDone(c.campaignId); }).length;   // 당첨 포함 전체
+    var wonAll = all.filter(function (c) { return isWon(c.campaignId); }).length;
+    var tabRows = scopeRows(all, state.filter, isDone, state.excl, isWon);
     var s = summarize(tabRows, isDone);
     $("stScope").textContent = num(s.total);
     $("stScopeLabel").textContent = TABS[state.filter] || "미신청";
     $("stNew").textContent = num(s.newCount);
     $("stDone").textContent = num(doneAll);
     $("stBest").textContent = tabRows.length ? pct(s.best) : "–";
-    // 탭 건수: 전체·오늘 신규는 제외 키워드까지 걸러서 세고, 신청완료는 체크한 것만
+    // 탭 건수: 전체·오늘 신규는 제외 키워드까지 걸러서 세고, 신청완료는 당첨을 뺌, 당첨은 전체 당첨 건수
     var inList = filterExcluded(all, state.excl);
     $("cAll").textContent = num(inList.length - inList.filter(function (c) { return isDone(c.campaignId); }).length);
-    $("cNew").textContent = num(scopeRows(all, "new", isDone, state.excl).length);
-    $("cDone").textContent = num(doneAll);
+    $("cNew").textContent = num(scopeRows(all, "new", isDone, state.excl, isWon).length);
+    $("cDone").textContent = num(doneAll - wonAll);
+    var cWon = $("cWon");
+    if (cWon) cWon.textContent = num(wonAll);
     $("progressBar").style.width = (all.length ? (doneAll / all.length) * 100 : 0) + "%";
 
     var upd = state.data && state.data.updatedAt;
@@ -696,7 +841,8 @@
       "카테고리 칩은 카카오 대분류를 묶은 것이고, 분류가 없는 상품은 상품명으로 보정합니다.<br>" +
       "[완료 체크]를 누르면 그 상품이 ‘신청완료’ 탭으로 옮겨집니다(이 폰에만 저장).<br>" +
       "카드의 [✕ 숨기기]를 누르면 목록에서 빠집니다(이 폰에만 저장).<br>" +
-      "발표일(마감 다음 날 11시)이 지나면 신청완료에서 자동으로 정리됩니다." +
+      "발표일(마감 다음 날 11시)이 지나면 신청완료에서 자동으로 정리됩니다.<br>" +
+      "신청완료 카드의 [🎉 당첨]을 누르면 ‘당첨’ 탭으로 옮겨지고, 후기를 쓸 때까지 자동 정리에서 빠집니다." +
       (state.excl.length
         ? "<br>제외 키워드 " + num(state.excl.length) + "개로 " + num(excludedCount()) + "건을 가리는 중" +
           '<br><button type="button" class="linkish" data-excluded-open="1">제외 키워드 관리</button>'
@@ -708,7 +854,8 @@
   }
 
   function currentOpts() {
-    return { filter: state.filter, cat: state.cat, q: state.q, sort: state.sort, isDone: isDone, exclude: state.excl };
+    return { filter: state.filter, cat: state.cat, q: state.q, sort: state.sort,
+      isDone: isDone, isWon: isWon, isReviewed: isReviewed, exclude: state.excl };
   }
 
   /** 제외 키워드만 빼고 같은 조건으로 거른 배열 — ‘다 가려졌다’ 안내에 쓴다 */
@@ -752,7 +899,8 @@
     var from = reset ? 0 : list.children.length;
     var frag = document.createElement("div");
     frag.innerHTML = shown.slice(from).map(function (c) {
-      return cardHTML(c, isDone(c.campaignId), state.filter === "done", Date.now());
+      return cardHTML(c, isDone(c.campaignId), state.filter === "done", Date.now(),
+        { won: isWon(c.campaignId), reviewed: isReviewed(c.campaignId), wonTab: state.filter === "won" });
     }).join("");
     while (frag.firstChild) list.appendChild(frag.firstChild);
 
@@ -764,10 +912,15 @@
       var bits = [];
       if (state.filter === "new") bits.push("오늘 신규");
       if (state.filter === "done") bits.push("신청완료");
+      if (state.filter === "won") bits.push("당첨");
       if (state.cat !== "all") bits.push(catLabel(state.cat));
       if (state.q) {
         emptyBox.innerHTML = '<span class="big">🔍</span>‘' + esc(state.q) + "’ " +
           (bits.length ? esc(bits.join(" · ")) + " 안에서 " : "") + "검색 결과가 없어요.";
+      } else if (state.filter === "won" && state.cat === "all") {
+        emptyBox.innerHTML = '<span class="big">🎉</span>아직 당첨으로 표시한 상품이 없어요.<br>' +
+          "신청완료 탭 카드에서 <b>🎉 당첨</b>을 누르면 여기로 모여요.<br>" +
+          "당첨으로 표시한 상품은 발표일이 지나도 정리되지 않고 후기를 쓸 때까지 남습니다.";
       } else if (state.filter === "done" && state.cat === "all") {
         emptyBox.innerHTML = '<span class="big">🗂️</span>아직 신청완료로 옮긴 상품이 없어요.<br>' +
           "카드의 <b>완료 체크</b>를 누르면 여기에 모입니다.";
@@ -826,6 +979,77 @@
   }
 
   /* ── 이벤트 ───────────────────────────── */
+  /* 탭 전환 — 칩 표시·상단 수치를 한 번에 맞춘다(당첨 처리 뒤 탭을 옮길 때도 쓴다) */
+  function setFilter(next) {
+    state.filter = next;
+    state.limit = PAGE;
+    Array.prototype.forEach.call(document.querySelectorAll(".chip[data-filter]"), function (c) {
+      var on = c.getAttribute("data-filter") === next;
+      c.classList.remove("new-on");
+      c.classList.toggle("on", on);
+      c.setAttribute("aria-selected", on ? "true" : "false");
+      if (on && next === "new") c.classList.add("new-on");
+    });
+    renderAll(); // 상단 수치도 탭 기준으로 다시 센다
+  }
+
+  /* ── 당첨 · 후기 챙기기 ────────────────
+   * 신청완료 카드의 [🎉 당첨] → applied 에 won 남기고 당첨 탭으로 이동
+   * 당첨 탭의 [✓ 후기 완료] → reviewed 토글   [당첨 취소] → 신청완료로 복귀(발표 지났으면 정리) */
+  function markWon(id, cardEl) {
+    if (!id) return;
+    dismissReturnIf(id);
+    if (!state.applied[id]) {
+      var c = findCampaign(id);
+      if (!c) return;
+      state.applied[id] = snapshotOf(c);
+    }
+    state.applied = withWon(state.applied, id, true);
+    saveApplied();
+    if (cardEl && cardEl.classList) cardEl.classList.add("is-out");
+    setFilter("won"); // 당첨 탭으로 이동해 바로 보여 준다
+    toast("🎉 당첨! 당첨 탭에서 후기를 챙겨요", "되돌리기", function () {
+      state.applied = withWon(state.applied, id, false);
+      saveApplied();
+      renderAll();
+      toast("당첨 표시를 되돌렸어요");
+    }, 6000);
+  }
+  function toggleReviewed(id) {
+    var ent = state.applied[id];
+    if (!ent || !ent.won) return;
+    var next = !ent.reviewed;
+    state.applied = withReviewed(state.applied, id, next);
+    saveApplied();
+    renderAll();
+    toast(next ? "후기 완료로 표시했어요" : "후기 완료를 풀었어요", "되돌리기", function () {
+      state.applied = withReviewed(state.applied, id, !next);
+      saveApplied();
+      renderAll();
+    }, 4000);
+  }
+  function unwonCard(id) {
+    var prevEntry = state.applied[id];
+    if (!prevEntry || !prevEntry.won) return;
+    state.applied = withWon(state.applied, id, false);
+    // 발표일이 지난 건은 신청완료로 돌아가도 바로 정리된다 — 그 사실을 알린다
+    var pruned = pruneApplied(state.applied, Date.now());
+    var gone = pruned.removed.indexOf(id) !== -1;
+    state.applied = pruned.applied;
+    saveApplied();
+    renderAll();
+    toast(gone ? "당첨을 취소해 정리했어요 (발표일이 지나서)" : "신청완료로 되돌렸어요", "되돌리기", function () {
+      var cur = state.applied;
+      var back = {};
+      Object.keys(cur).forEach(function (k) { back[k] = cur[k]; });
+      back[id] = prevEntry;
+      state.applied = back;
+      saveApplied();
+      renderAll();
+      toast("당첨으로 되돌렸어요");
+    }, 6000);
+  }
+
   function hideOne(id, actEl) {
     dismissReturnIf(id);
     setHidden(id, true);
@@ -854,6 +1078,25 @@
       moveCard(cid, !isDone(cid), btn.closest(".card"));
       return;
     }
+    // 당첨 표시 / 후기 완료 토글 / 당첨 취소
+    var wonBtn = e.target.closest("[data-won]");
+    if (wonBtn) {
+      e.preventDefault();
+      markWon(wonBtn.getAttribute("data-won"), wonBtn.closest(".card"));
+      return;
+    }
+    var reviewBtn = e.target.closest("[data-review]");
+    if (reviewBtn) {
+      e.preventDefault();
+      toggleReviewed(reviewBtn.getAttribute("data-review"));
+      return;
+    }
+    var unwonBtn = e.target.closest("[data-unwon]");
+    if (unwonBtn) {
+      e.preventDefault();
+      unwonCard(unwonBtn.getAttribute("data-unwon"));
+      return;
+    }
     var openA = e.target.closest("[data-open]");
     if (openA) {
       var id = openA.getAttribute("data-open");
@@ -864,16 +1107,7 @@
 
   Array.prototype.forEach.call(document.querySelectorAll(".chip[data-filter]"), function (chip) {
     chip.addEventListener("click", function () {
-      Array.prototype.forEach.call(document.querySelectorAll(".chip[data-filter]"), function (c) {
-        c.classList.remove("on", "new-on");
-        c.setAttribute("aria-selected", "false");
-      });
-      chip.setAttribute("aria-selected", "true");
-      chip.classList.add("on");
-      if (chip.getAttribute("data-filter") === "new") chip.classList.add("new-on");
-      state.filter = chip.getAttribute("data-filter");
-      state.limit = PAGE;
-      renderAll(); // 상단 수치도 탭 기준으로 다시 센다
+      setFilter(chip.getAttribute("data-filter"));
     });
   });
 
@@ -942,14 +1176,26 @@
   /* ── 기록 옮기기 패널 ────────────────
    * ① 이 기기의 기록을 KTF1 글자로 복사 ② 다른 기기에서 만든 글자를 붙여넣어 불러오기 */
   function transferCounts() {
-    return { applied: recordIds(state.applied).length, hidden: recordIds(state.hidden).length, kw: state.excl.length };
+    var ids = recordIds(state.applied);
+    return {
+      applied: ids.length,
+      hidden: recordIds(state.hidden).length,
+      kw: state.excl.length,
+      won: ids.filter(function (id) { return isWon(id); }).length,
+      reviewed: ids.filter(function (id) { return isReviewed(id); }).length
+    };
+  }
+  /** 기록 안내에 붙는 ‘당첨 N건’ 조각(없으면 빈 글자) */
+  function wonPart(n) {
+    return n.won ? " · 당첨 " + num(n.won) + "건" + (n.reviewed ? "(후기 완료 " + num(n.reviewed) + ")" : "") : "";
   }
   function openTransfer() {
     var box = $("transfer");
     if (!box) return;
     var n = transferCounts();
     box.hidden = false;
-    $("transferNote").textContent = "지금 이 기기 기록 — 신청완료 " + num(n.applied) + "건 · 숨김 " + num(n.hidden) + "건" +
+    $("transferNote").textContent = "지금 이 기기 기록 — 신청완료 " + num(n.applied) + "건" + wonPart(n) +
+      " · 숨김 " + num(n.hidden) + "건" +
       (n.kw ? " · 제외 키워드 " + num(n.kw) + "개" : "");
     $("transferMsg").textContent = "";
     $("transferText").value = "";
@@ -980,7 +1226,7 @@
     }
     var text = packRecords(state.applied, state.hidden, state.excl);
     if (ta) ta.value = text; // 자동 복사가 막혀도 여기서 직접 복사할 수 있게 남긴다
-    var counted = "신청완료 " + num(n.applied) + "건 · 숨김 " + num(n.hidden) + "건" +
+    var counted = "신청완료 " + num(n.applied) + "건" + wonPart(n) + " · 숨김 " + num(n.hidden) + "건" +
       (n.kw ? " · 제외 키워드 " + num(n.kw) + "개" : "");
     var ok = function () { note.textContent = counted + " 복사했어요. 새 기기에서 ②에 붙여넣어 주세요."; };
     var manual = function () {
@@ -1018,7 +1264,7 @@
     renderAll();
     closeTransfer();
     toast((replace ? "기록을 덮어썼어요" : "기록을 불러왔어요") +
-      " · 신청완료 " + num(recordIds(state.applied).length) + "건 · 숨김 " +
+      " · 신청완료 " + num(recordIds(state.applied).length) + "건" + wonPart(transferCounts()) + " · 숨김 " +
       num(recordIds(state.hidden).length) + "건" +
       (state.excl.length ? " · 제외 키워드 " + num(state.excl.length) + "개" : ""));
   }
