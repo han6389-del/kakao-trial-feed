@@ -542,6 +542,13 @@
     if (changed) saveApplied();
     return { changed: changed, removed: pruned.removed };
   }
+  /* 정리한 건수를 알린다. 아직 목록을 못 불러온 순간(pageshow 등)이면 모아 두었다가 불러온 뒤에 알린다. */
+  var pendingPrune = 0;
+  function notePrune(n) {
+    if (!n) return;
+    if (!state.data) { pendingPrune += n; return; }
+    toast("발표일이 지난 " + num(n) + "건을 신청완료에서 정리했어요");
+  }
 
   /* ── 숨김 저장소 ─────────────────────── */
   function loadHidden() {
@@ -584,9 +591,8 @@
         state.limit = PAGE;
         var sync = syncApplied();
         renderAll();
-        if (sync.removed.length) {
-          toast("발표일이 지난 " + num(sync.removed.length) + "건을 신청완료에서 정리했어요");
-        }
+        notePrune(sync.removed.length + pendingPrune);
+        pendingPrune = 0;
       })
       .catch(function (err) {
         // 단일 파일(오프라인) 배포본은 데이터가 파일 안에 들어 있다
@@ -1205,7 +1211,10 @@
   function maybePromptReturn() {
     // 날짜가 바뀌었거나 처음 불러온 뒤라면 정리·보강할 것이 있다 — 배너보다 먼저 반영한다
     var sync = syncApplied();
-    if (sync.changed && state.data) renderAll();
+    if (sync.changed) {
+      if (state.data) renderAll();
+      notePrune(sync.removed.length);
+    }
     if (document.hidden) return; // 아직 카톡에 가 있는 상태
     var lo = readLastOpen(), bar = $("retBar");
     if (!lo) {
