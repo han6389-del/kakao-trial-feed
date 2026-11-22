@@ -175,6 +175,67 @@
     }
     return counts;
   }
+  /* ── 기록 옮기기(내보내기 / 가져오기) ─────
+   * 기록은 기기(브라우저·앱)마다 따로 저장되므로, 크롬에서 쓰던 신청완료·숨김을
+   * 앱으로 1회 옮길 때 쓴다. 형식은 첫 줄 KTF1, 그 아래 'A id,id…'(신청완료) /
+   * 'H id,id…'(숨김) — 화면에 드러나는 날짜는 옮기지 않고 불러온 날부터 새로 센다. */
+  var TRANSFER_HEAD = "KTF1";
+  var RECORD_ID = /^[A-Za-z0-9_-]{4,64}$/;
+  var TRANSFER_CHUNK = 40; // 한 줄에 담는 id 수(긴 한 줄이 잘려 보이지 않게 나눈다)
+  /** 옮겨도 되는 id 인가 — 형식 + 프로토타입을 건드리는 이름은 뺀다 */
+  function recordIdOk(id) {
+    if (!RECORD_ID.test(id)) return false;
+    var low = id.toLowerCase();
+    return low !== "__proto__" && low !== "constructor" && low !== "prototype";
+  }
+  /** 기록 맵에서 옮길 id 만 뽑는다(저장소가 오염돼 있어도 안전하게) */
+  function recordIds(map) {
+    return Object.keys(map || {}).filter(recordIdOk);
+  }
+  function packRecords(applied, hidden) {
+    var lines = [TRANSFER_HEAD];
+    [["A", recordIds(applied)], ["H", recordIds(hidden)]].forEach(function (pair) {
+      var ids = pair[1];
+      for (var i = 0; i < ids.length; i += TRANSFER_CHUNK) {
+        lines.push(pair[0] + " " + ids.slice(i, i + TRANSFER_CHUNK).join(","));
+      }
+    });
+    return lines.join("\n");
+  }
+  /** 붙여넣은 글자 → {applied, hidden}. 형식이 아니면 Error */
+  function unpackRecords(text) {
+    var s = String(text == null ? "" : text).replace(/^\uFEFF/, "").trim();
+    if (!s) throw new Error("붙여넣은 내용이 비어 있어요.");
+    var applied = {}, hidden = {}, read = 0;
+    s.split(/\r?\n/).forEach(function (line) {
+      line = line.trim();
+      if (!line || line.charAt(0) === "#") return;
+      if (/^KTF\d*$/i.test(line)) return; // 머리말
+      var m = /^([AH]|applied|hidden)\b[\s:|]*(.*)$/i.exec(line);
+      if (!m) return;
+      var dest = m[1].toUpperCase().charAt(0) === "H" ? hidden : applied;
+      m[2].split(/[\s,]+/).forEach(function (id) {
+        id = id.trim();
+        if (!recordIdOk(id)) return;
+        dest[id] = { at: new Date().toISOString() };
+        read++;
+      });
+    });
+    if (!read) throw new Error("옮길 기록을 찾지 못했어요. 복사한 글자를 ② 칸에 그대로 붙여넣어 주세요.");
+    return { applied: applied, hidden: hidden };
+  }
+  /** base 위에 extra 를 얹은 새 객체(원본 불변) */
+  function mergeRecords(base, extra) {
+    var out = {};
+    [base, extra].forEach(function (src) {
+      Object.keys(src || {}).forEach(function (k) {
+        if (!recordIdOk(k)) return;
+        out[k] = src[k] || { at: new Date().toISOString() };
+      });
+    });
+    return out;
+  }
+
   function summarize(all, isDone) {
     var total = all.length, newCount = 0, doneCount = 0, best = 0;
     for (var i = 0; i < total; i++) {
@@ -192,6 +253,8 @@
     scopeRows: scopeRows, TABS: TABS,
     deepLink: deepLink, groupKeyOf: groupKeyOf, catLabel: catLabel, CAT_GROUPS: CAT_GROUPS,
     isHiddenId: isHiddenId, filterHidden: filterHidden, catCounts: catCounts,
+    packRecords: packRecords, unpackRecords: unpackRecords, mergeRecords: mergeRecords,
+    recordIds: recordIds, recordIdOk: recordIdOk, TRANSFER_HEAD: TRANSFER_HEAD,
     STORE: STORE, HIDDEN_STORE: HIDDEN_STORE, PAGE: PAGE, KEEP_DAYS: KEEP_DAYS, HIDDEN_DAYS: HIDDEN_DAYS
   };
 
@@ -360,7 +423,8 @@
       "카드의 [✕ 숨기기]를 누르면 목록에서 빠집니다(이 폰에만 저장)." +
       (hiddenN
         ? '<br><button type="button" class="linkish" data-unhide-all="1">숨긴 상품 ' + num(hiddenN) + "개 모두 되돌리기</button>"
-        : "");
+        : "") +
+      '<br><button type="button" class="linkish" data-transfer-open="1">기록 옮기기 (복사 / 붙여넣기)</button>';
   }
 
   function currentOpts() {
@@ -558,12 +622,106 @@
 
   /* 하단 안내의 ‘숨긴 상품 모두 되돌리기’ — innerHTML 이 다시 그려져도 살아있게 위임 */
   $("foot").addEventListener("click", function (e) {
+    if (e.target.closest("[data-transfer-open]")) {
+      openTransfer();
+      return;
+    }
     if (!e.target.closest("[data-unhide-all]")) return;
     var n = hiddenCount();
     clearHidden();
     renderAll();
     toast(n ? "숨긴 상품 " + num(n) + "개를 되돌렸어요" : "되돌릴 상품이 없어요");
   });
+
+  /* ── 기록 옮기기 패널 ────────────────
+   * ① 이 기기의 기록을 KTF1 글자로 복사 ② 다른 기기에서 만든 글자를 붙여넣어 불러오기 */
+  function transferCounts() {
+    return { applied: recordIds(state.applied).length, hidden: recordIds(state.hidden).length };
+  }
+  function openTransfer() {
+    var box = $("transfer");
+    if (!box) return;
+    var n = transferCounts();
+    box.hidden = false;
+    $("transferNote").textContent = "지금 이 기기 기록 — 신청완료 " + num(n.applied) + "건 · 숨김 " + num(n.hidden) + "건";
+    $("transferMsg").textContent = "";
+    $("transferText").value = "";
+    var btn = $("transferCopy");
+    if (btn && btn.focus) btn.focus();
+  }
+  function closeTransfer() {
+    var box = $("transfer");
+    if (box) box.hidden = true;
+  }
+  /** 클립보드 API 가 막힌 곳(일부 WebView·http)을 위한 글자 선택 복사 */
+  function legacyCopy(ta) {
+    try {
+      if (!ta) return false;
+      if (ta.focus) ta.focus();
+      if (ta.select) ta.select();
+      if (ta.setSelectionRange) ta.setSelectionRange(0, ta.value.length);
+      return typeof document.execCommand === "function" && !!document.execCommand("copy");
+    } catch (e) { return false; }
+  }
+  function copyTransfer() {
+    var ta = $("transferText"), note = $("transferNote");
+    var n = transferCounts();
+    if (!n.applied && !n.hidden) {
+      if (ta) ta.value = "";
+      note.textContent = "이 기기에는 아직 옮길 기록이 없어요.";
+      return;
+    }
+    var text = packRecords(state.applied, state.hidden);
+    if (ta) ta.value = text; // 자동 복사가 막혀도 여기서 직접 복사할 수 있게 남긴다
+    var counted = "신청완료 " + num(n.applied) + "건 · 숨김 " + num(n.hidden) + "건";
+    var ok = function () { note.textContent = counted + " 복사했어요. 새 기기에서 ②에 붙여넣어 주세요."; };
+    var manual = function () {
+      note.textContent = counted + " 준비했어요. 자동 복사가 안 되면 아래 칸의 글자를 길게 눌러 전체 복사해 주세요.";
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        navigator.clipboard.writeText(text).then(ok, function () {
+          if (!legacyCopy(ta)) manual();
+          else ok();
+        });
+        return;
+      } catch (e) { /* 아래로 */ }
+    }
+    if (legacyCopy(ta)) ok(); else manual();
+  }
+  /** 붙여넣은 기록 저장 — replace 면 이 기기의 기존 기록을 버리고 덮어쓴다. */
+  function importTransfer(replace) {
+    var ta = $("transferText"), msg = $("transferMsg"), rec;
+    try {
+      rec = unpackRecords(ta ? ta.value : "");
+    } catch (err) {
+      msg.textContent = err.message || "글자를 읽지 못했어요.";
+      return;
+    }
+    if (replace) { state.applied = {}; state.hidden = {}; }
+    state.applied = mergeRecords(state.applied, rec.applied);
+    state.hidden = mergeRecords(state.hidden, rec.hidden);
+    saveApplied();
+    saveHidden();
+    renderAll();
+    closeTransfer();
+    toast((replace ? "기록을 덮어썼어요" : "기록을 불러왔어요") +
+      " · 신청완료 " + num(recordIds(state.applied).length) + "건 · 숨김 " +
+      num(recordIds(state.hidden).length) + "건");
+  }
+  $("transferCopy").addEventListener("click", copyTransfer);
+  $("transferMerge").addEventListener("click", function () { importTransfer(false); });
+  $("transferReplace").addEventListener("click", function () { importTransfer(true); });
+  $("transferClose").addEventListener("click", closeTransfer);
+  $("transfer").addEventListener("click", function (e) {
+    var t = e.target;
+    if (t === this || (t && t.getAttribute && t.getAttribute("data-transfer-close"))) closeTransfer();
+  });
+  if (document.addEventListener) {
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !$("transfer").hidden) closeTransfer();
+    });
+  }
 
   $("refresh").addEventListener("click", load);
 

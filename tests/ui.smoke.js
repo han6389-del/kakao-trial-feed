@@ -223,5 +223,118 @@
   global.__RERUN__();
   eq("정리: 60일 지난 숨김은 버린다", Object.keys(JSON.parse(store["kt_hidden_v1"])).length, 0);
 
+  /* ── 기록 옮기기 패널(복사 / 붙여넣기) ──
+   * 실제 사용 흐름: 크롬(기록 있음) → 복사 → 새 앱(기록 일부) → 붙여넣어 합치기/덮어쓰기 */
+  var TRANSFER_IDS = ["list", "foot", "transfer", "transferCopy", "transferMerge", "transferReplace", "transferClose"];
+  function clearHandlers() {
+    TRANSFER_IDS.forEach(function (id) { A(id).listeners = {}; });
+  }
+  function openEv() {
+    return { target: { closest: function (sel) { return sel === "[data-transfer-open]" ? new El("button") : null; } } };
+  }
+  function reloadWith(seed) {
+    store[A_STORE] = "{}";
+    store["kt_hidden_v1"] = "{}";
+    Object.keys(seed || {}).forEach(function (k) { store[k] = seed[k]; });
+    A("transfer").hidden = true;
+    clearHandlers();
+    global.__RERUN__();
+  }
+
+  ok("푸터: ‘기록 옮기기’ 버튼이 있다",
+    A("foot").innerHTML.indexOf("data-transfer-open") !== -1 &&
+    A("foot").innerHTML.indexOf("기록 옮기기") !== -1, A("foot").innerHTML);
+
+  /* 마크업 — 시트는 hidden 으로 시작하고, app.js 가 찾는 id 가 index.html 에 모두 있다 */
+  var html = global.__HTML__ || "";
+  ok("마크업: 시트가 hidden 으로 시작한다(화면을 가리지 않는다)",
+    /id="transfer"[^>]*\shidden/.test(html), html.slice(0, 0) + "id=transfer hidden 없음");
+  ok("마크업: 시트는 dialog 로 읽힌다",
+    /id="transfer"[^>]*role="dialog"/.test(html) && /id="transfer"[^>]*aria-modal="true"/.test(html));
+  ok("마크업: 시트 제목이 aria-labelledby 로 연결",
+    /aria-labelledby="transferTitle"/.test(html) && /id="transferTitle"/.test(html));
+  var used = {}, idRe = /\$\\("([A-Za-z0-9_]+)"\\)/g, hit;
+  while ((hit = idRe.exec(global.__APP_SRC__))) used[hit[1]] = 1;
+  var missingIds = Object.keys(used).filter(function (id) { return html.indexOf('id="' + id + '"') === -1; });
+  eq("마크업: app.js 가 찾는 DOM id 가 index.html 에 모두 있다", missingIds.join(","), "");
+  ok("마크업: 시트 요소 5개(복사·합치기·덮어쓰기·닫기·텍스트칸)가 있다",
+    ["transferCopy", "transferMerge", "transferReplace", "transferClose", "transferText"]
+      .every(function (id) { return html.indexOf('id="' + id + '"') !== -1; }));
+
+  reloadWith(null);
+  A("foot").fire("click", openEv());
+  eq("시트: 하단 버튼으로 열린다", A("transfer").hidden, false);
+  ok("시트: 열 때 이 기기 기록 건수를 안내",
+    A("transferNote").textContent.indexOf("지금 이 기기 기록") !== -1, A("transferNote").textContent);
+  eq("시트: 열면 붙여넣기 칸은 비어 있다", A("transferText").value, "");
+
+  /* 기록이 없을 때 복사 — 머리말만 남기지 않고 안내만 */
+  A("transferCopy").fire("click");
+  eq("빈 기록: 복사해도 칸은 비어 있다", A("transferText").value, "");
+  ok("빈 기록: ‘아직 옮길 기록이 없어요’",
+    A("transferNote").textContent.indexOf("아직 옮길 기록이 없어요") !== -1, A("transferNote").textContent);
+
+  A("transferClose").fire("click");
+  eq("닫기: ✕ 로 닫힌다", A("transfer").hidden, true);
+
+  /* 2건 체크 + 1건 숨김 후 복사 */
+  resetToast();
+  A("list").fire("click", toggleEv(rows[0].campaignId));
+  A("list").fire("click", toggleEv(rows[1].campaignId));
+  var hidBtn = new El("button"); hidBtn.attrs["data-hide"] = rows[2].campaignId; hidBtn._closest = { ".card": card };
+  A("list").fire("click", {
+    target: { closest: function (sel) { return sel === "[data-hide]" ? hidBtn : (sel === ".card" ? card : null); } },
+    preventDefault: function () {}
+  });
+  A("foot").fire("click", openEv());
+  A("transferCopy").fire("click");
+  var copied = A("transferText").value;
+  ok("복사: 칸에 KTF1 글자가 담긴다", copied.split("\n")[0] === "KTF1", copied.slice(0, 40));
+  ok("복사: 체크한 id 가 실린다", copied.indexOf(rows[0].campaignId) !== -1 && copied.indexOf(rows[1].campaignId) !== -1);
+  ok("복사: 숨긴 id 가 H 줄에 실린다", /^H /m.test(copied) && copied.indexOf(rows[2].campaignId) !== -1);
+  ok("복사: 몇 건인지 안내", A("transferNote").textContent.indexOf("신청완료 2건") !== -1 &&
+    A("transferNote").textContent.indexOf("숨김 1건") !== -1, A("transferNote").textContent);
+
+  /* 새 기기(앱) — 기존 1건이 있는 상태에서 붙여넣어 합치기 */
+  var seed = {}; seed[rows[5].campaignId] = { at: new Date().toISOString() };
+  reloadWith({ "ktApp.applied.v1": JSON.stringify(seed) });
+  eq("새 기기: 옮기기 전 신청완료 1건", A("cDone").textContent, "1");
+  A("foot").fire("click", openEv());
+  A("transferText").value = copied;
+  A("transferMerge").fire("click");
+  eq("합치기: 시트가 닫힌다", A("transfer").hidden, true);
+  var afterMerge = JSON.parse(store[A_STORE] || "{}");
+  eq("합치기: 기존 1건 + 옮긴 2건 = 3건", Object.keys(afterMerge).length, 3);
+  ok("합치기: 이 기기의 기존 기록도 남아 있다", !!afterMerge[rows[5].campaignId]);
+  eq("합치기: 숨김 1건도 옮겨졌다", Object.keys(JSON.parse(store["kt_hidden_v1"] || "{}")).length, 1);
+  eq("합치기: 화면 신청완료 건수 = 3", A("cDone").textContent, "3");
+  ok("합치기: 토스트 ‘기록을 불러왔어요’",
+    A("toast").innerHTML.indexOf("기록을 불러왔어요") !== -1, A("toast").innerHTML);
+
+  /* 덮어쓰기 — 이 기기 기록을 버리고 붙여넣은 것만 */
+  A("foot").fire("click", openEv());
+  A("transferText").value = copied;
+  A("transferReplace").fire("click");
+  var afterReplace = JSON.parse(store[A_STORE] || "{}");
+  eq("덮어쓰기: 옮긴 2건만 남는다", Object.keys(afterReplace).length, 2);
+  ok("덮어쓰기: 이 기기의 기존 기록은 지워진다", !afterReplace[rows[5].campaignId]);
+  eq("덮어쓰기: 화면 신청완료 건수 = 2", A("cDone").textContent, "2");
+  ok("덮어쓰기: 토스트 ‘기록을 덮어썼어요’",
+    A("toast").innerHTML.indexOf("덮어썼어요") !== -1, A("toast").innerHTML);
+
+  /* 잘못 붙여넣었을 때 — 시트는 열린 채로 이유를 알려 준다 */
+  A("foot").fire("click", openEv());
+  A("transferText").value = "그냥 글자";
+  A("transferMerge").fire("click");
+  eq("오류: 시트는 열린 채로 남는다", A("transfer").hidden, false);
+  ok("오류: 붙여넣기를 안내한다", A("transferMsg").textContent.indexOf("붙여넣") !== -1, A("transferMsg").textContent);
+  eq("오류: 기록은 바뀌지 않는다", Object.keys(JSON.parse(store[A_STORE] || "{}")).length, 2);
+
+  /* 닫기 — 바깥(배경) 누르기 */
+  A("transfer").fire("click", {
+    target: { getAttribute: function (k) { return k === "data-transfer-close" ? "1" : null; } }
+  });
+  eq("닫기: 배경을 누르면 닫힌다", A("transfer").hidden, true);
+
   global.__RESULT__ = { pass: pass, fail: fail, log: out };
 })(this);

@@ -74,6 +74,35 @@
 <footer id="foot"></footer>
 <div id="toast" role="status" aria-live="polite"></div>
 
+<!-- 기록 옮기기 — 크롬(앱)에서 쓰던 신청완료·숨김을 다른 기기로 1회 옮기는 패널 -->
+<div class="sheet" id="transfer" hidden role="dialog" aria-modal="true" aria-labelledby="transferTitle">
+  <div class="sheet-back" data-transfer-close="1"></div>
+  <div class="sheet-body">
+    <div class="sheet-head">
+      <h2 id="transferTitle">기록 옮기기</h2>
+      <button class="sheet-x" id="transferClose" type="button" aria-label="닫기">✕</button>
+    </div>
+    <p class="sheet-desc">기록은 이 브라우저(앱)에만 저장돼요. 지금 쓰는 곳의 <b>신청완료·숨김</b>을
+      다른 곳으로 한 번 옮길 때 씁니다.</p>
+    <div class="tr-step">
+      <div class="tr-label">① 내 기록 복사하기</div>
+      <button class="tr-btn" id="transferCopy" type="button">내 기록 복사하기</button>
+      <p class="tr-note" id="transferNote" role="status"></p>
+    </div>
+    <div class="tr-step">
+      <div class="tr-label">② 기록 붙여넣어 불러오기</div>
+      <textarea id="transferText" rows="3" spellcheck="false" autocomplete="off"
+        placeholder="복사한 글자를 여기에 붙여넣기" aria-label="옮길 기록 글자"></textarea>
+      <div class="tr-actions">
+        <button class="tr-btn" id="transferMerge" type="button">불러오기 (합치기)</button>
+        <button class="tr-btn ghost" id="transferReplace" type="button">덮어쓰기</button>
+      </div>
+      <p class="tr-note" id="transferMsg" role="status"></p>
+      <p class="tr-warn">덮어쓰기를 누르면 이 기기의 기존 기록은 지워지고 붙여넣은 기록만 남아요.</p>
+    </div>
+  </div>
+</div>
+
 <script src="app.js" defer></script>
 </body>
 </html>

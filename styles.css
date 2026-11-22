@@ -180,3 +180,51 @@ footer .linkish{
 }
 #toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 #toast button{background:none;border:0;color:var(--kakao);font-weight:800;font-size:13px;padding:0}
+
+/* ── 기록 옮기기 패널(바텀 시트) ───────── */
+.sheet{
+  position:fixed; inset:0; z-index:60; display:flex; align-items:flex-end; justify-content:center;
+  background:rgba(0,0,0,.32); animation:sheetFade .16s ease
+}
+.sheet[hidden]{display:none}
+.sheet-back{position:absolute; inset:0}
+.sheet-body{
+  position:relative; width:100%; max-width:560px; max-height:calc(100% - 40px); overflow-y:auto;
+  -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
+  background:#fff; border-radius:18px 18px 0 0; padding:16px 16px calc(18px + var(--safe-b));
+  box-shadow:0 -8px 30px rgba(0,0,0,.16); animation:sheetUp .2s ease
+}
+@keyframes sheetFade{from{opacity:0} to{opacity:1}}
+@keyframes sheetUp{from{transform:translateY(26px)} to{transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet-body{animation:none}}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sheet-head h2{margin:0;font-size:16px;font-weight:800;letter-spacing:-.3px}
+.sheet-x{
+  flex:0 0 auto; width:32px; height:32px; border:0; border-radius:50%; background:#f4f4f4;
+  color:#666; font-size:13px; line-height:1; display:flex; align-items:center; justify-content:center
+}
+.sheet-x:active{background:#e9e9e9}
+.sheet-desc{margin:6px 0 14px;font-size:12.5px;line-height:1.6;color:var(--muted)}
+.sheet-desc b{color:#444}
+.tr-step{margin:0}
+.tr-step + .tr-step{border-top:1px solid var(--line); padding-top:12px; margin-top:12px}
+.tr-label{font-size:13px;font-weight:800;margin-bottom:7px}
+.tr-btn{
+  width:100%; min-height:42px; padding:0 14px; border-radius:11px; border:1px solid var(--kakao-dark);
+  background:var(--kakao); color:var(--ink); font-size:13.5px; font-weight:800;
+  display:flex; align-items:center; justify-content:center
+}
+.tr-btn:active{background:var(--kakao-dark); border-color:var(--kakao-dark)}
+.tr-btn.ghost{background:#fff; border-color:#e2e2e2; color:#666}
+.tr-btn.ghost:active{background:#f4f4f4; border-color:#d8d8d8}
+.tr-actions{display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin-top:8px}
+.tr-actions .tr-btn.ghost{width:auto; white-space:nowrap}
+#transferText{
+  display:block; width:100%; border:1px solid var(--line); border-radius:11px; padding:9px 10px;
+  background:#fafafa; color:#333; outline:none; resize:vertical; word-break:break-all;
+  font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; line-height:1.55
+}
+#transferText:focus{border-color:var(--kakao-dark); background:#fff}
+.tr-note{margin:7px 0 0; font-size:11.5px; line-height:1.55; color:var(--green); font-weight:600}
+.tr-note:empty{display:none}
+.tr-warn{margin:8px 0 0; font-size:11px; line-height:1.5; color:#a87000}

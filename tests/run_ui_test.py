@@ -16,10 +16,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 def main() -> int:
     app = (ROOT / "app.js").read_text(encoding="utf-8")
     data = (ROOT / "data" / "campaigns.json").read_text(encoding="utf-8")
+    html = (ROOT / "index.html").read_text(encoding="utf-8")
     smoke = (ROOT / "tests" / "ui.smoke.js").read_text(encoding="utf-8")
 
     ctx = quickjs.Context()
     ctx.eval("globalThis.__DATA__ = " + data + ";")
+    ctx.eval("globalThis.__HTML__ = " + json.dumps(html) + ";")
     ctx.eval("globalThis.__APP_SRC__ = " + json.dumps(app) + ";")
     ctx.eval("globalThis.__RERUN__ = function () { (0, eval)(__APP_SRC__); };")
     ctx.eval(app)
