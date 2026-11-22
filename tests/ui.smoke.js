@@ -44,23 +44,38 @@
     e.querySelector = function (sel) { return sel === "b" ? b : (sel === "button" ? (this._btn = this._btn || new El("button")) : null); };
     return e;
   });
-  global.document = {
+  var doc = {
+    hidden: false,
+    listeners: {},
+    addEventListener: function (t, f) { (doc.listeners[t] = doc.listeners[t] || []).push(f); },
+    fire: function (t, ev) { (doc.listeners[t] || []).forEach(function (f) { f(ev || {}); }); },
     getElementById: function (id) { return byId[id] || (byId[id] = new El("div")); },
     querySelectorAll: function (sel) {
       return sel.indexOf("data-filter") !== -1 ? chipsFilter : chipsCat;
     },
     createElement: function (t) { return new El(t); }
   };
+  global.document = doc;
   var store = {};
   global.localStorage = {
     getItem: function (k) { return k in store ? store[k] : null; },
     setItem: function (k, v) { store[k] = String(v); },
     removeItem: function (k) { delete store[k]; }
   };
+  var session = {};
+  global.sessionStorage = {
+    getItem: function (k) { return k in session ? session[k] : null; },
+    setItem: function (k, v) { session[k] = String(v); },
+    removeItem: function (k) { delete session[k]; }
+  };
   global.navigator = {};
   global.location = { protocol: "https:" };
   global.setTimeout = function (fn) { fn(); return 0; };
   global.clearTimeout = function () {};
+  /* window 이벤트(focus) — app.js 는 돌아오는 순간을 visibilitychange·focus·pageshow 로 본다 */
+  global.__WIN__ = {};
+  global.addEventListener = function (t, f) { (global.__WIN__[t] = global.__WIN__[t] || []).push(f); };
+  function fireWin(t, ev) { (global.__WIN__[t] || []).forEach(function (f) { f(ev || {}); }); }
 
   /* ── app.js 로드 → fetch → 렌더 ───────── */
   var DATA = global.__DATA__;
@@ -225,9 +240,11 @@
 
   /* ── 기록 옮기기 패널(복사 / 붙여넣기) ──
    * 실제 사용 흐름: 크롬(기록 있음) → 복사 → 새 앱(기록 일부) → 붙여넣어 합치기/덮어쓰기 */
-  var TRANSFER_IDS = ["list", "foot", "transfer", "transferCopy", "transferMerge", "transferReplace", "transferClose"];
+  var TRANSFER_IDS = ["list", "foot", "empty", "transfer", "transferCopy", "transferMerge", "transferReplace", "transferClose",
+    "kwOpen", "excluded", "excludedClose", "kwInput", "kwAdd", "kwList", "kwClearAll", "kwBadge",
+    "retBar", "retTitle", "retDone", "retClose"];
   function clearHandlers() {
-    TRANSFER_IDS.forEach(function (id) { A(id).listeners = {}; });
+    TRANSFER_IDS.forEach(function (id) { doc.getElementById(id).listeners = {}; });
   }
   function openEv() {
     return { target: { closest: function (sel) { return sel === "[data-transfer-open]" ? new El("button") : null; } } };
@@ -236,7 +253,11 @@
     store[A_STORE] = "{}";
     store["kt_hidden_v1"] = "{}";
     Object.keys(seed || {}).forEach(function (k) { store[k] = seed[k]; });
-    A("transfer").hidden = true;
+    // 시트·배너는 hidden 으로 시작(가짜 DOM 은 요소를 쓰일 때 만든다)
+    ["transfer", "excluded", "retBar"].forEach(function (id) { doc.getElementById(id).hidden = true; });
+    doc.hidden = false;
+    doc.listeners = {};
+    global.__WIN__ = {};
     clearHandlers();
     global.__RERUN__();
   }
@@ -335,6 +356,220 @@
     target: { getAttribute: function (k) { return k === "data-transfer-close" ? "1" : null; } }
   });
   eq("닫기: 배경을 누르면 닫힌다", A("transfer").hidden, true);
+
+  /* ══ 제외 키워드 시트 ═══════════════════
+   * 실제 흐름: 툴바 [🚫 제외] → 시트 → 입력·추가(Enter·쉬표 다중) → 칩 ✕ 삭제 → 모두 지우기 */
+  function openExclEv() {
+    return { target: { closest: function (sel) { return sel === "[data-excluded-open]" ? new El("button") : null; } } };
+  }
+  function hitsOf(kw) {
+    var t = kw.toLowerCase();
+    return rows.filter(function (c) {
+      return (c.title + " " + (c.brandName || "") + " " + (c.category || "")).toLowerCase().indexOf(t) !== -1;
+    });
+  }
+  function uiDone() { return JSON.parse(store[A_STORE] || "{}"); }
+  function uiKws() { return JSON.parse(store["kt_excluded_kw_v1"] || "[]"); }
+
+  ok("마크업: 제외 키워드 버튼·시트 요소가 있다",
+    ["kwOpen", "excluded", "excludedClose", "kwInput", "kwAdd", "kwList", "kwClearAll", "kwBadge"]
+      .every(function (id) { return html.indexOf('id="' + id + '"') !== -1; }));
+  ok("마크업: 제외 키워드 시트도 hidden 으로 시작", /id="excluded"[^>]*\shidden/.test(html));
+  ok("마크업: 시트는 dialog 로 읽히고 제목이 연결된다",
+    /id="excluded"[^>]*role="dialog"/.test(html) && /aria-labelledby="excludedTitle"/.test(html));
+
+  delete store["kt_excluded_kw_v1"];
+  delete session["kt_last_open_v1"];
+  reloadWith(null);
+  eq("키워드: 처음에는 배지 숨김", A("kwBadge").hidden, true);
+  A("kwOpen").fire("click");
+  eq("키워드 시트: 툴바 버튼으로 열린다", A("excluded").hidden, false);
+  ok("키워드 시트: 비었다고 안내", A("kwList").innerHTML.indexOf("등록된 제외 키워드가 없어요") !== -1, A("kwList").innerHTML);
+  eq("키워드 시트: 입력칸은 비어 있다", A("kwInput").value, "");
+
+  var KW_A = "바디", hitsA = hitsOf(KW_A).length;
+  A("kwInput").value = KW_A;
+  A("kwAdd").fire("click");
+  eq("키워드: localStorage kt_excluded_kw_v1 에 저장", uiKws().join("|"), KW_A);
+  eq("키워드: 전체 탭 건수가 걸린 만큼 줄어든다", A("cAll").textContent, KT.num(total0 - hitsA));
+  eq("키워드: 노출 건수도 줄어든다", A("shownCount").textContent, (total0 - hitsA) + "건");
+  eq("키워드: 상단 미신청 수치도 줄어든다", A("stScope").textContent, KT.num(total0 - hitsA));
+  eq("키워드: 배지에 개수", A("kwBadge").textContent, "1");
+  eq("키워드: 배지 보이기", A("kwBadge").hidden, false);
+  ok("키워드: 칩으로 표시되고 ✕ 삭제 버튼이 있다",
+    A("kwList").innerHTML.indexOf('data-kw-del="' + KW_A + '"') !== -1, A("kwList").innerHTML);
+  eq("키워드: 추가하면 입력칸이 비워진다", A("kwInput").value, "");
+  ok("키워드: 몇 건 가리는지 안내", A("kwMsg").textContent.indexOf("가리는 중") !== -1, A("kwMsg").textContent);
+  ok("키워드: 하단에 관리 링크", A("foot").innerHTML.indexOf("data-excluded-open") !== -1, A("foot").innerHTML);
+  ok("키워드: 목록을 다시 그려도 걸리는 상품이 없다",
+    A("list").innerHTML.indexOf(KW_A) === -1 || hitsOf(KW_A).every(function (c) {
+      return A("list").innerHTML.indexOf('data-id="' + c.campaignId + '"') === -1;
+    }));
+
+  /* Enter 키·쉼표 다중 입력·중복 */
+  A("kwInput").value = "전용";
+  A("kwInput").fire("keydown", { key: "Enter", preventDefault: function () {} });
+  eq("키워드: Enter 로도 추가", uiKws().length, 2);
+  A("kwInput").value = "가나다, 라마바 ,가나다";
+  A("kwAdd").fire("click");
+  eq("키워드: 쉼표 다중 입력 + 중복 제거", uiKws().length, 4);
+  eq("키워드: 배지 4", A("kwBadge").textContent, "4");
+  A("kwInput").value = "가나다";
+  A("kwAdd").fire("click");
+  eq("키워드: 이미 있는 키워드는 늘지 않는다", uiKws().length, 4);
+  ok("키워드: 이미 등록됐다고 알린다", A("kwMsg").textContent.indexOf("이미") !== -1, A("kwMsg").textContent);
+  A("kwInput").value = "";
+  A("kwAdd").fire("click");
+  ok("키워드: 빈 입력은 안내만", A("kwMsg").textContent.indexOf("입력해") !== -1, A("kwMsg").textContent);
+
+  /* 신청완료 탭은 제외 키워드에 걸려도 그대로 보인다 */
+  var hitRow = hitsOf(KW_A)[0];
+  A("list").fire("click", toggleEv(hitRow.campaignId));
+  eq("키워드: 걸리는 상품도 완료 체크된다", !!uiDone()[hitRow.campaignId], true);
+  eq("키워드: 전체 탭은 완료분·걸림분 모두 빠진 수", A("cAll").textContent,
+    KT.num(KT.scopeRows(rows, "all", function (id) { return !!uiDone()[id]; }, uiKws()).length));
+  eq("키워드: 신청완료 건수는 그대로 1", A("cDone").textContent, "1");
+  chipsFilter.filter(function (c) { return c.attrs["data-filter"] === "done"; })[0].fire("click");
+  eq("키워드: 신청완료 탭에는 걸리는 상품도 남아 1건", A("shownCount").textContent, "1건");
+  chipsFilter.filter(function (c) { return c.attrs["data-filter"] === "all"; })[0].fire("click");
+
+  /* 칩 ✕ 로 하나 삭제 → 목록 복구 */
+  var beforeDel = uiKws().length;
+  A("kwList").fire("click", {
+    target: {
+      closest: function (sel) {
+        if (sel !== "[data-kw-del]") return null;
+        var b = new El("button"); b.attrs["data-kw-del"] = "가나다"; return b;
+      }
+    }
+  });
+  eq("키워드: ✕ 로 하나 지운다", uiKws().length, beforeDel - 1);
+  ok("키워드: 지운 키워드는 목록·저장소에 없다",
+    A("kwList").innerHTML.indexOf('data-kw-del="가나다"') === -1 && uiKws().indexOf("가나다") === -1);
+  ok("키워드: 지웠다고 안내", A("kwMsg").textContent.indexOf("지웠어요") !== -1, A("kwMsg").textContent);
+  eq("키워드: 지운 뒤 건수가 늘어난다", A("cAll").textContent,
+    KT.num(KT.scopeRows(rows, "all", function (id) { return !!uiDone()[id]; }, uiKws()).length));
+
+  /* 모두 지우기 → 원래 목록 */
+  A("kwClearAll").fire("click");
+  eq("키워드: 모두 지우기 → 저장소 비움", uiKws().length, 0);
+  eq("키워드: 모두 지우기 → 배지 숨김", A("kwBadge").hidden, true);
+  ok("키워드: 모두 지우기 → 빈 목록 안내", A("kwList").innerHTML.indexOf("등록된 제외 키워드가 없어요") !== -1);
+  eq("키워드: 모두 지우면 전체 탭 원복", A("cAll").textContent, KT.num(total0 - 1));
+
+  /* 시트 닫기 — ✕ 와 배경 누르기, Enter 키 (footer 링크로도 열린다) */
+  A("excludedClose").fire("click");
+  eq("키워드 시트: ✕ 로 닫힌다", A("excluded").hidden, true);
+  A("foot").fire("click", openExclEv());
+  eq("키워드 시트: 하단 링크로도 열린다", A("excluded").hidden, false);
+  A("excluded").fire("click", {
+    target: { getAttribute: function (k) { return k === "data-excluded-close" ? "1" : null; } }
+  });
+  eq("키워드 시트: 배경을 누르면 닫힌다", A("excluded").hidden, true);
+
+  /* ══ 카톡 복귀 원탭 확인 배너 ═══════════
+   * 실제 흐름: [모바일 신청 열기] → 카톡(페이지 hidden) → 돌아옴 → 하단 배너 → 완료 처리/닫기 */
+  function openCardEv(id) {
+    return {
+      target: {
+        closest: function (sel) {
+          if (sel !== "[data-open]") return null;
+          var a = new El("a"); a.attrs["data-open"] = id; return a;
+        }
+      },
+      preventDefault: function () {}
+    };
+  }
+  function lastOpen() { return JSON.parse(session["kt_last_open_v1"] || "null"); }
+
+  delete store["kt_excluded_kw_v1"];
+  delete session["kt_last_open_v1"];
+  reloadWith(null);
+  ok("마크업: 하단 배너 요소가 있고 hidden 으로 시작",
+    ["retBar", "retTitle", "retDone", "retClose"].every(function (id) { return html.indexOf('id="' + id + '"') !== -1; }) &&
+    /id="retBar"[^>]*\shidden/.test(html));
+  eq("배너: 처음에는 안 보인다", A("retBar").hidden, true);
+
+  doc.hidden = true; // 카톡으로 나간 상태
+  A("list").fire("click", openCardEv(rows[0].campaignId));
+  ok("배너: 카톡으로 열면 마지막으로 연 상품을 기억", !!lastOpen() && lastOpen().id === rows[0].campaignId, JSON.stringify(lastOpen()));
+  eq("배너: 제목도 기억", lastOpen() && lastOpen().title, rows[0].title);
+  eq("배너: 나가기 전에는 뜨지 않는다", A("retBar").hidden, true);
+  eq("배너: 열었다고 바로 완료 처리하지는 않는다", A("cDone").textContent, "0");
+
+  doc.hidden = false; // 돌아옴
+  doc.fire("visibilitychange");
+  eq("배너: 돌아오면 하단 배너가 뜬다", A("retBar").hidden, false);
+  ok("배너: 문구에 방금 연 상품 이름", A("retTitle").textContent.indexOf(rows[0].title.slice(0, 8)) !== -1, A("retTitle").textContent);
+  eq("배너: 배너가 뜨면 감춰 두지 않는다", A("retBar").hidden, false);
+
+  resetToast();
+  A("retDone").fire("click");
+  eq("배너: [완료 처리] → 신청완료로 저장", !!uiDone()[rows[0].campaignId], true);
+  eq("배너: [완료 처리] → 신청완료 1", A("cDone").textContent, "1");
+  eq("배너: [완료 처리] → 전체 탭 1 감소", A("cAll").textContent, KT.num(total0 - 1));
+  eq("배너: [완료 처리] → 배너 닫힘", A("retBar").hidden, true);
+  ok("배너: [완료 처리] → 기억을 지운다", !session["kt_last_open_v1"], session["kt_last_open_v1"]);
+  ok("배너: [완료 처리] → 토스트로 알린다", A("toast").innerHTML.indexOf("신청완료로 옮겼어요") !== -1, A("toast").innerHTML);
+  A("toast").querySelector("button").fire("click"); // 되돌리기
+  eq("배너: 되돌리면 미신청 복귀", A("cDone").textContent, "0");
+
+  /* [닫기] — 완료 처리 없이 기억만 지운다 */
+  resetToast();
+  doc.hidden = true;
+  A("list").fire("click", openCardEv(rows[1].campaignId));
+  doc.hidden = false;
+  fireWin("focus"); // window focus 로 돌아오는 경우
+  eq("배너: focus 로 돌아와도 뜬다", A("retBar").hidden, false);
+  A("retClose").fire("click");
+  eq("배너: [닫기] → 배너 닫힘", A("retBar").hidden, true);
+  eq("배너: [닫기] → 완료 처리 안 함", A("cDone").textContent, "0");
+  ok("배너: [닫기] → 기억을 지운다", !session["kt_last_open_v1"], session["kt_last_open_v1"]);
+  eq("배너: 닫은 뒤 다시 돌아와도 안 뜬다", (function () { doc.fire("visibilitychange"); return A("retBar").hidden; })(), true);
+
+  /* 나가기 전에 직접 완료·숨김 처리한 상품은 묻지 않는다 */
+  doc.hidden = true;
+  A("list").fire("click", openCardEv(rows[2].campaignId));
+  A("list").fire("click", toggleEv(rows[2].campaignId));
+  doc.hidden = false;
+  doc.fire("visibilitychange");
+  eq("배너: 이미 완료한 상품은 묻지 않는다", A("retBar").hidden, true);
+  A("list").fire("click", toggleEv(rows[2].campaignId)); // 되돌리기
+
+  doc.hidden = true;
+  A("list").fire("click", openCardEv(rows[4].campaignId));
+  var hideBtn2 = new El("button"); hideBtn2.attrs["data-hide"] = rows[4].campaignId; hideBtn2._closest = { ".card": card };
+  A("list").fire("click", {
+    target: { closest: function (sel) { return sel === "[data-hide]" ? hideBtn2 : (sel === ".card" ? card : null); } },
+    preventDefault: function () {}
+  });
+  doc.hidden = false;
+  doc.fire("visibilitychange");
+  eq("배너: 숨긴 상품은 묻지 않는다", A("retBar").hidden, true);
+  A("foot").fire("click", { target: { closest: function (sel) { return sel === "[data-unhide-all]" ? new El("button") : null; } } });
+
+  /* 30분이 지난 기억은 띄우지 않고 지운다 */
+  session["kt_last_open_v1"] = JSON.stringify({ id: rows[3].campaignId, title: rows[3].title, at: Date.now() - 31 * 60e3 });
+  doc.hidden = false;
+  doc.fire("pageshow");
+  eq("배너: 30분 넘은 기억은 띄우지 않는다", A("retBar").hidden, true);
+  ok("배너: 30분 넘으면 기억도 지운다", !session["kt_last_open_v1"], session["kt_last_open_v1"]);
+
+  /* 새로고침해도 기억이 남아 있으면 다시 물어본다 */
+  session["kt_last_open_v1"] = JSON.stringify({ id: rows[5].campaignId, title: rows[5].title, at: Date.now() - 60e3 });
+  reloadWith(null);
+  eq("배너: 새로고침 뒤에도 기억이 살아 있으면 뜬다", (function () { doc.fire("pageshow"); return A("retBar").hidden; })(), false);
+  A("retClose").fire("click");
+
+  /* 아직 카톡에 머무는 동안(hidden)에는 뜨지 않고, 돌아와야 뜬다 */
+  session["kt_last_open_v1"] = JSON.stringify({ id: rows[6].campaignId, title: rows[6].title, at: Date.now() - 60e3 });
+  doc.hidden = true;
+  doc.fire("visibilitychange");
+  eq("배너: 아직 카톡에 있는 동안에는 안 뜬다", A("retBar").hidden, true);
+  doc.hidden = false;
+  doc.fire("visibilitychange");
+  eq("배너: 돌아오는 순간 뜬다", A("retBar").hidden, false);
+  A("retClose").fire("click");
 
   global.__RESULT__ = { pass: pass, fail: fail, log: out };
 })(this);

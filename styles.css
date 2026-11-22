@@ -82,6 +82,19 @@ h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.3px}
 .chip.cat.is-empty{opacity:.45}
 .chip.cat.is-empty.on{opacity:1}
 .sortrow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}
+.sortright{display:flex;align-items:center;gap:6px;min-width:0}
+/* 제외 키워드 버튼 — 툴바를 늘리지 않게 정렬 옆에 작게 */
+.kwbtn{
+  display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:0 10px;border-radius:10px;
+  border:1px solid var(--line);background:#fff;color:#666;font-size:12px;font-weight:700;white-space:nowrap
+}
+.kwbtn b{
+  background:#eee;color:#555;border-radius:999px;font-size:11px;font-weight:800;padding:1px 6px;line-height:1.4
+}
+.kwbtn b[hidden]{display:none}
+.kwbtn.has{border-color:#f0d3ce;background:#fff6f5;color:#b4443a}
+.kwbtn.has b{background:var(--red);color:#fff}
+.kwbtn:active{background:#f4f4f4}
 .count{font-size:12px;color:var(--muted);font-weight:600}
 select{
   appearance:none; -webkit-appearance:none; border:1px solid var(--line); background:#fff; border-radius:10px;
@@ -180,6 +193,59 @@ footer .linkish{
 }
 #toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 #toast button{background:none;border:0;color:var(--kakao);font-weight:800;font-size:13px;padding:0}
+
+/* ── 카톡 복귀 원탭 확인 배너 ─────────────
+ * 되돌리기 토스트(z 50)와 겹치지 않게 배너는 z 45, 배너가 뜨면 토스트를 위로 올린다. */
+.retbar{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + var(--safe-b));z-index:45;
+  display:flex;align-items:center;gap:10px;width:calc(100% - 20px);max-width:536px;
+  background:rgba(25,25,25,.96);color:#fff;border-radius:14px;padding:10px 10px 10px 14px;
+  box-shadow:0 10px 26px rgba(0,0,0,.24);animation:sheetUp .18s ease
+}
+.retbar[hidden]{display:none}
+.ret-q{
+  margin:0;flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:600;line-height:1.35;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden
+}
+.ret-q b{font-weight:800;color:var(--kakao)}
+.ret-act{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.ret-ok{
+  min-height:34px;padding:0 12px;border-radius:9px;border:0;background:var(--kakao);color:var(--ink);
+  font-size:12.5px;font-weight:800;white-space:nowrap
+}
+.ret-ok:active{background:var(--kakao-dark)}
+.ret-no{
+  min-height:34px;padding:0 8px;border-radius:9px;border:1px solid rgba(255,255,255,.26);
+  background:transparent;color:#ddd;font-size:12.5px;font-weight:700;white-space:nowrap
+}
+body.has-retbar{padding-bottom:calc(96px + var(--safe-b))}
+body.has-retbar #toast{bottom:calc(78px + var(--safe-b))}
+
+/* ── 제외 키워드 시트 ─────────────── */
+.kw-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+#kwInput{
+  width:100%;min-height:42px;border:1px solid var(--line);border-radius:11px;padding:10px 12px;
+  background:#fafafa;color:var(--ink);font-size:14px;outline:none
+}
+#kwInput:focus{border-color:var(--kakao-dark);background:#fff}
+.kw-btn{
+  min-width:72px;min-height:42px;padding:0 14px;border-radius:11px;border:1px solid var(--kakao-dark);
+  background:var(--kakao);color:var(--ink);font-size:13.5px;font-weight:800;white-space:nowrap
+}
+.kw-btn:active{background:var(--kakao-dark)}
+.kw-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;min-height:20px}
+.kw-chip{
+  display:inline-flex;align-items:center;gap:6px;max-width:100%;min-height:32px;padding:0 10px;
+  border-radius:999px;border:1px solid #f0d3ce;background:#fff6f5;color:#9a4139;
+  font-size:12.5px;font-weight:700
+}
+.kw-chip span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kw-chip .x{font-size:11px;color:#c07b74;line-height:1}
+.kw-chip:active{background:#ffecea;border-color:#e9c2bc}
+.kw-empty{margin:2px 0 0;font-size:12px;color:#a0a0a0;line-height:1.6}
+.kw-actions{margin-top:12px}
+.kw-actions .tr-btn{min-height:40px}
+.tr-btn[disabled]{opacity:.45}
 
 /* ── 기록 옮기기 패널(바텀 시트) ───────── */
 .sheet{

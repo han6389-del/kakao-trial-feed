@@ -59,11 +59,14 @@
   </div>
   <div class="sortrow">
     <span class="count" id="shownCount">–</span>
-    <select id="sort" aria-label="정렬">
-      <option value="rate">당첨확률 높은순</option>
-      <option value="recruit">모집인원 많은순</option>
-      <option value="deadline">마감임박순</option>
-    </select>
+    <div class="sortright">
+      <button class="kwbtn" id="kwOpen" type="button" aria-label="제외 키워드 관리" title="제외 키워드 관리">🚫 제외 <b id="kwBadge" hidden>0</b></button>
+      <select id="sort" aria-label="정렬">
+        <option value="rate">당첨확률 높은순</option>
+        <option value="recruit">모집인원 많은순</option>
+        <option value="deadline">마감임박순</option>
+      </select>
+    </div>
   </div>
 </div>
 
@@ -73,6 +76,15 @@
 <noscript><p class="empty">이 페이지는 자바스크립트가 필요합니다.</p></noscript>
 <footer id="foot"></footer>
 <div id="toast" role="status" aria-live="polite"></div>
+
+<!-- 카톡으로 나갔다 돌아왔을 때 — 방금 연 상품을 한 번에 완료 처리하는 배너 -->
+<div class="retbar" id="retBar" hidden role="status" aria-live="polite">
+  <p class="ret-q">방금 연 <b id="retTitle">상품</b> 신청했나요?</p>
+  <div class="ret-act">
+    <button class="ret-ok" id="retDone" type="button">✅ 완료 처리</button>
+    <button class="ret-no" id="retClose" type="button">닫기</button>
+  </div>
+</div>
 
 <!-- 기록 옮기기 — 크롬(앱)에서 쓰던 신청완료·숨김을 다른 기기로 1회 옮기는 패널 -->
 <div class="sheet" id="transfer" hidden role="dialog" aria-modal="true" aria-labelledby="transferTitle">
@@ -99,6 +111,29 @@
       </div>
       <p class="tr-note" id="transferMsg" role="status"></p>
       <p class="tr-warn">덮어쓰기를 누르면 이 기기의 기존 기록은 지워지고 붙여넣은 기록만 남아요.</p>
+    </div>
+  </div>
+</div>
+
+<!-- 제외 키워드 — 상품명·브랜드·카테고리에 걸리면 전체·오늘 신규에서 감추는 키워드 관리 -->
+<div class="sheet" id="excluded" hidden role="dialog" aria-modal="true" aria-labelledby="excludedTitle">
+  <div class="sheet-back" data-excluded-close="1"></div>
+  <div class="sheet-body">
+    <div class="sheet-head">
+      <h2 id="excludedTitle">🚫 제외 키워드</h2>
+      <button class="sheet-x" id="excludedClose" type="button" aria-label="닫기">✕</button>
+    </div>
+    <p class="sheet-desc">상품명·브랜드·카테고리에 이 단어가 들어간 상품은 <b>전체 · 오늘 신규</b> 목록과 건수에서 빠져요.
+      <b>신청완료</b> 탭은 그대로 보여요. 저장은 이 폰(브라우저)에만 됩니다.</p>
+    <div class="kw-add">
+      <input id="kwInput" type="text" placeholder="예: 여성, 아동, 화장품 (쉼표로 여러 개)"
+        autocomplete="off" enterkeyhint="done" aria-label="제외 키워드 입력">
+      <button class="kw-btn" id="kwAdd" type="button">추가</button>
+    </div>
+    <p class="tr-note" id="kwMsg" role="status"></p>
+    <div class="kw-chips" id="kwList"></div>
+    <div class="kw-actions">
+      <button class="tr-btn ghost" id="kwClearAll" type="button">모두 지우기</button>
     </div>
   </div>
 </div>
