@@ -561,6 +561,14 @@
   eq("배너: 새로고침 뒤에도 기억이 살아 있으면 뜬다", (function () { doc.fire("pageshow"); return A("retBar").hidden; })(), false);
   A("retClose").fire("click");
 
+  /* 카톡에 있는 사이 웹뷰가 죽어 sessionStorage 가 비워져도 — localStorage 에 같이 적어 둔 기억으로 살아난다 */
+  delete session["kt_last_open_v1"];
+  store["kt_last_open_v1"] = JSON.stringify({ id: rows[6].campaignId, title: rows[6].title, at: Date.now() - 60e3 });
+  reloadWith(null);
+  eq("배너: sessionStorage 가 비어도 localStorage 기억으로 뜬다", (function () { doc.fire("pageshow"); return A("retBar").hidden; })(), false);
+  A("retClose").fire("click");
+  ok("배너: 닫으면 localStorage 쪽 기억도 지운다", !store["kt_last_open_v1"], store["kt_last_open_v1"]);
+
   /* 아직 카톡에 머무는 동안(hidden)에는 뜨지 않고, 돌아와야 뜬다 */
   session["kt_last_open_v1"] = JSON.stringify({ id: rows[6].campaignId, title: rows[6].title, at: Date.now() - 60e3 });
   doc.hidden = true;

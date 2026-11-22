@@ -973,32 +973,43 @@
   });
 
   /* ── 카톡 복귀 원탭 확인 배너 ──────────
-   * [모바일 신청 열기]로 카톡에 나간 상품을 sessionStorage 에 기억해 두고, 앱·브라우저로 돌아오면
-   * 하단에 “방금 연 ○○ 신청했나요?” 배너를 띄워 한 번에 완료 처리할 수 있게 한다. */
+   * [모바일 신청 열기]로 카톡에 나간 상품을 기억해 두고, 앱·브라우저로 돌아오면
+   * 하단에 “방금 연 ○○ 신청했나요?” 배너를 띄워 한 번에 완료 처리할 수 있게 한다.
+   * 평소에는 sessionStorage(탭을 닫으면 사라짐)에 두고, 잠깐 동안은 localStorage 에도 같이 적는다.
+   * 카톡에서 돌아오는 사이 웹뷰가 죽어 페이지가 새로 뜨는 경우에도 배너가 뜨게 하기 위해서다. */
   var retId = "", memOpen = null;
   function sessionStore() {
     try { if (typeof sessionStorage !== "undefined" && sessionStorage) return sessionStorage; } catch (e) { /* 막힌 곳 */ }
     return null;
   }
+  function localStore() {
+    try { if (typeof localStorage !== "undefined" && localStorage) return localStorage; } catch (e) { /* 막힌 곳 */ }
+    return null;
+  }
   function readLastOpen() {
-    var ss = sessionStore();
-    if (ss) {
+    var stores = [sessionStore(), localStore()];
+    for (var i = 0; i < stores.length; i++) {
+      if (!stores[i]) continue;
       try {
-        var raw = ss.getItem(OPEN_STORE);
+        var raw = stores[i].getItem(OPEN_STORE);
         if (raw) return JSON.parse(raw);
-      } catch (e) { /* 아래 메모리 값으로 */ }
+      } catch (e) { /* 다음 저장소 */ }
     }
     return memOpen;
   }
   function writeLastOpen(lo) {
     memOpen = lo;
-    var ss = sessionStore();
-    if (ss) { try { ss.setItem(OPEN_STORE, JSON.stringify(lo)); } catch (e) { /* 메모리만 */ } }
+    [sessionStore(), localStore()].forEach(function (st) {
+      if (!st) return;
+      try { st.setItem(OPEN_STORE, JSON.stringify(lo)); } catch (e) { /* 메모리만 */ }
+    });
   }
   function clearLastOpen() {
     memOpen = null;
-    var ss = sessionStore();
-    if (ss) { try { ss.removeItem(OPEN_STORE); } catch (e) { /* 무시 */ } }
+    [sessionStore(), localStore()].forEach(function (st) {
+      if (!st) return;
+      try { st.removeItem(OPEN_STORE); } catch (e) { /* 무시 */ }
+    });
   }
   function findCampaign(id) {
     var all = allCampaigns();
