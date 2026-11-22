@@ -3,10 +3,25 @@
   "source": "https://gift.kakao.com/a/partner-trial/api/v1/trial-campaigns",
   "rawTotalCount": 480,
   "excludedCount": 101,
-  "totalCount": 379,
+  "totalCount": 380,
   "newCount": 94,
   "newRule": "마감 6일 이상 남은 최신 등록분(모집 7일 기준)",
   "campaigns": [
+    {
+      "campaignId": "e2ewontest0001",
+      "title": "[배포 검증용 임시] 발표가 지난 상품 — 당첨 보호 확인",
+      "brandName": "검증용",
+      "imageUrl": "",
+      "recruitmentCount": 10,
+      "applicationCount": 100,
+      "winRate": 10.0,
+      "endDate": "2026-11-19",
+      "isNew": false,
+      "mobileUrl": "https://gift.kakao.com/giftbox/trial-campaign/e2ewontest0001",
+      "remainingDays": -3,
+      "category": "기타 · 임시검증",
+      "productId": 0
+    },
     {
       "campaignId": "6aba2c47ad768a1dd2e71cbc",
       "title": "[선물 포장/핸드타월 증정] 플르부아 바디로션 250mL (4종 중 택1)",
