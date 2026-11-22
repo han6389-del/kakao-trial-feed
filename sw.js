@@ -1,5 +1,5 @@
 /* 카카오 체험단 피드 — 앱 껍데기는 캐시, 데이터(campaigns.json)는 네트워크 우선 */
-const CACHE = "kt-feed-v9"; // 카톡 복귀 원탭 완료 배너 + 제외 키워드 시트 추가 — 크롬·APK WebView 모두 새 캐시를 받게 버전을 올린다
+const CACHE = "kt-feed-v10"; // 카톡 복귀 원탭 완료 배너 + 제외 키워드 시트 추가 — 크롬·APK WebView 모두 새 캐시를 받게 버전을 올린다
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json", "./icons/icon.svg", "./icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
