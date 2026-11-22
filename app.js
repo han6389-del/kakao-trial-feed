@@ -75,6 +75,13 @@
     var d = new Date(idx * 864e5);
     return (d.getUTCMonth() + 1) + "/" + d.getUTCDate();
   }
+  /** 발표일 정렬 순위 — 0 오늘, 1 앞으로, 2 지남, 3 마감일 미상 */
+  function announceRank(endDate, nowMs) {
+    var ann = announceDay(endDate);
+    if (isNaN(ann)) return { rank: 3, days: 0 };
+    var d = Math.round(ann - todayKST(nowMs));
+    return { rank: d === 0 ? 0 : (d > 0 ? 1 : 2), days: d };
+  }
   /** 카드에 붙는 발표일 배지 — {show, label, cls, days} */
   function announceBadge(endDate, nowMs) {
     var ann = announceDay(endDate);
@@ -238,13 +245,12 @@
         return (a.remainingDays - b.remainingDays) || (b.winRate - a.winRate);
       });
     } else if (mode === "announce") {
-      // 발표일 가까운 순 — 오늘 발표가 맨 위, 마감일이 없는 옛 기록은 뒤로
+      // 발표일 가까운 순 — 오늘 발표가 맨 위, 그다음 앞으로의 발표일, 이미 지난 것·마감일 미상은 뒤로
+      var now = Date.now();
       out.sort(function (a, b) {
-        var da = announceDay(a.endDate), db = announceDay(b.endDate);
-        if (isNaN(da) && isNaN(db)) return b.winRate - a.winRate;
-        if (isNaN(da)) return 1;
-        if (isNaN(db)) return -1;
-        return (da - db) || (b.winRate - a.winRate);
+        var x = announceRank(a.endDate, now), y = announceRank(b.endDate, now);
+        var dd = x.rank === 2 ? (y.days - x.days) : (x.days - y.days); // 지난 것은 최근 것부터
+        return (x.rank - y.rank) || dd || (b.winRate - a.winRate);
       });
     } else {
       out.sort(function (a, b) {
@@ -481,7 +487,7 @@
     matches: matches, sortList: sortList, query: query, summarize: summarize, cardHTML: cardHTML,
     announceDay: announceDay, dayToMD: dayToMD, announceBadge: announceBadge, snapshotOf: snapshotOf,
     hydrateApplied: hydrateApplied, pruneApplied: pruneApplied, snapshotRows: snapshotRows,
-    doneRows: doneRows, SNAP_FIELDS: SNAP_FIELDS,
+    doneRows: doneRows, SNAP_FIELDS: SNAP_FIELDS, announceRank: announceRank,
     scopeRows: scopeRows, TABS: TABS,
     deepLink: deepLink, groupKeyOf: groupKeyOf, catLabel: catLabel, CAT_GROUPS: CAT_GROUPS,
     isHiddenId: isHiddenId, filterHidden: filterHidden, catCounts: catCounts,

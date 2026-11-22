@@ -153,6 +153,22 @@
   eq("query: 신청완료 탭 = doneRows 와 같은 건수", q1.length, 3);
   eq("query: 정렬 선택과 무관하게 오늘 발표가 맨 위", q1[0].campaignId, "snapToday0001");
 
+  /* 발표가 끝난 기록이 화면에 남아 있는 순간에도 오늘 발표가 위로 온다 */
+  var mix = [
+    { campaignId: "past0000011", endDate: isoDay(T - 2), winRate: 9 },
+    { campaignId: "later000012", endDate: isoDay(T + 2), winRate: 1 },
+    { campaignId: "today000013", endDate: isoDay(T - 1), winRate: 2 },
+    { campaignId: "noend000014", endDate: "", winRate: 8 },
+    { campaignId: "sooner00015", endDate: isoDay(T), winRate: 0.5 }
+  ];
+  var sortedMix = KT.sortList(mix, "announce");
+  eq("정렬: 오늘 발표가 맨 위", sortedMix[0].campaignId, "today000013");
+  eq("정렬: 그다음이 내일 발표", sortedMix[1].campaignId, "sooner00015");
+  eq("정렬: 그다음이 먼 발표", sortedMix[2].campaignId, "later000012");
+  eq("정렬: 지난 발표는 뒤로", sortedMix[3].campaignId, "past0000011");
+  eq("정렬: 마감일 미상은 맨 뒤", sortedMix[4].campaignId, "noend000014");
+  eq("정렬: 원본 배열 불변", mix[0].campaignId, "past0000011");
+
   /* ── 8) 실제 데이터 — 목록에서 사라져도 발표일까지 남는다 ── */
   var victim = null;
   for (var i = 0; i < rows.length; i++) if (rows[i].endDate === isoDay(T)) { victim = rows[i]; break; }
