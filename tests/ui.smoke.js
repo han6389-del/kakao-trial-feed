@@ -551,21 +551,21 @@
   /* 30분이 지난 기억은 띄우지 않고 지운다 */
   session["kt_last_open_v1"] = JSON.stringify({ id: rows[3].campaignId, title: rows[3].title, at: Date.now() - 31 * 60e3 });
   doc.hidden = false;
-  doc.fire("pageshow");
+  fireWin("pageshow");
   eq("배너: 30분 넘은 기억은 띄우지 않는다", A("retBar").hidden, true);
   ok("배너: 30분 넘으면 기억도 지운다", !session["kt_last_open_v1"], session["kt_last_open_v1"]);
 
   /* 새로고침해도 기억이 남아 있으면 다시 물어본다 */
   session["kt_last_open_v1"] = JSON.stringify({ id: rows[5].campaignId, title: rows[5].title, at: Date.now() - 60e3 });
   reloadWith(null);
-  eq("배너: 새로고침 뒤에도 기억이 살아 있으면 뜬다", (function () { doc.fire("pageshow"); return A("retBar").hidden; })(), false);
+  eq("배너: 새로고침 뒤에도 기억이 살아 있으면 뜬다", (function () { fireWin("pageshow"); return A("retBar").hidden; })(), false);
   A("retClose").fire("click");
 
   /* 카톡에 있는 사이 웹뷰가 죽어 sessionStorage 가 비워져도 — localStorage 에 같이 적어 둔 기억으로 살아난다 */
   delete session["kt_last_open_v1"];
   store["kt_last_open_v1"] = JSON.stringify({ id: rows[6].campaignId, title: rows[6].title, at: Date.now() - 60e3 });
   reloadWith(null);
-  eq("배너: sessionStorage 가 비어도 localStorage 기억으로 뜬다", (function () { doc.fire("pageshow"); return A("retBar").hidden; })(), false);
+  eq("배너: sessionStorage 가 비어도 localStorage 기억으로 뜬다", (function () { fireWin("pageshow"); return A("retBar").hidden; })(), false);
   A("retClose").fire("click");
   ok("배너: 닫으면 localStorage 쪽 기억도 지운다", !store["kt_last_open_v1"], store["kt_last_open_v1"]);
 

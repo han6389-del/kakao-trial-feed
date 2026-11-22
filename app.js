@@ -1076,11 +1076,11 @@
     hideReturnBar();
     clearLastOpen();
   });
-  if (document.addEventListener) {
-    document.addEventListener("visibilitychange", maybePromptReturn);
-    document.addEventListener("pageshow", maybePromptReturn);
+  if (document.addEventListener) document.addEventListener("visibilitychange", maybePromptReturn);
+  if (global.addEventListener) {
+    global.addEventListener("pageshow", maybePromptReturn); // pageshow 는 Window 이벤트다(document 에 걸면 안 온다)
+    global.addEventListener("focus", maybePromptReturn);
   }
-  if (global.addEventListener) global.addEventListener("focus", maybePromptReturn);
 
   $("refresh").addEventListener("click", load);
 
