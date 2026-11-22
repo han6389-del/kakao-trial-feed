@@ -1097,17 +1097,5 @@
     navigator.serviceWorker.register("sw.js").catch(function () {});
   }
 
-  /* 진단용 — 주소에 ?debug=1 이 붙어 있을 때만 내부 상태를 꺼내 볼 수 있게 둔다 */
-  if (/[?&]debug=1\b/.test(location.search)) {
-    global.__ktDebug = function () {
-      var lo = readLastOpen();
-      return {
-        lastOpen: lo, retId: retId, barHidden: $("retBar") ? $("retBar").hidden : null,
-        docHidden: !!document.hidden, applied: Object.keys(state.applied).length,
-        excl: state.excl, filter: state.filter, at: Date.now()
-      };
-    };
-  }
-
   load();
 })(typeof window !== "undefined" ? window : this);
