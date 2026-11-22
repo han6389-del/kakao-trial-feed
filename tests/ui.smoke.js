@@ -28,11 +28,31 @@
   El.prototype.querySelector = function (sel) { return sel === "button" ? (this._btn = this._btn || new El("button")) : null; };
   El.prototype.closest = function (sel) { return (this._closest && this._closest[sel]) || null; };
   El.prototype.querySelectorAll = function () { return []; };
-  El.prototype.appendChild = function (c) { this.children.push(c); return c; };
+  El.prototype.appendChild = function (c) {
+    // 진짜 DOM 처럼 다른 부모에 있던 노드는 옮긴다(renderList 의 while(firstChild) 가 끝나게)
+    if (c && c._parent && c._parent.children) {
+      var i = c._parent.children.indexOf(c);
+      if (i !== -1) c._parent.children.splice(i, 1);
+    }
+    if (c) c._parent = this;
+    this.children.push(c); return c;
+  };
   El.prototype.fire = function (type, ev) { (this.listeners[type] || []).forEach(function (f) { f(ev); }); };
   Object.defineProperty(El.prototype, "innerHTML", {
     get: function () { return this._html; },
-    set: function (v) { this._html = String(v); this.children = []; }
+    set: function (v) {
+      this._html = String(v);
+      // 카드 목록만은 <article> 단위로 잘라 children 에 담는다(renderList 가 appendChild 로 붙이는 구조)
+      this.children = [];
+      var re = /<article\b[^>]*>[\s\S]*?<\/article>/g, m, self = this;
+      while ((m = re.exec(this._html))) {
+        var el = new El("article"), idm = /data-id="([^"]*)"/.exec(m[0]);
+        if (idm) el.attrs["data-id"] = idm[1];
+        el._html = m[0];
+        el._parent = self;
+        (function (node) { self.children.push(node); })(el);
+      }
+    }
   });
   Object.defineProperty(El.prototype, "firstChild", { get: function () { return this.children[0] || null; } });
 
@@ -578,6 +598,81 @@
   doc.fire("visibilitychange");
   eq("배너: 돌아오는 순간 뜬다", A("retBar").hidden, false);
   A("retClose").fire("click");
+
+  /* ══ 발표 당일 유지 · 발표 다음 날 자동 정리 ══════════
+   * 실제 흐름: 상품을 체크(발표일까지 정보를 저장) → campaigns.json 에서 빠져도 오늘 발표 카드가 남음
+   *            → 발표 다음 날 다시 열면 자동으로 사라짐 */
+  function isoDay(idx) {
+    var d = new Date(idx * 864e5), p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return d.getUTCFullYear() + "-" + p(d.getUTCMonth() + 1) + "-" + p(d.getUTCDate());
+  }
+  function mdOf(idx) {
+    var d = new Date(idx * 864e5);
+    return (d.getUTCMonth() + 1) + "/" + d.getUTCDate();
+  }
+  function listCards() {
+    return A("list").children.map(function (c) { return c._html; }).join("");
+  }
+  var TD = KT.todayKST();
+
+  /* 체크하면 스냅샷이 함께 저장된다 */
+  reloadWith(null);
+  resetToast();
+  A("list").fire("click", toggleEv(rows[0].campaignId));
+  var savedSnap = uiDone()[rows[0].campaignId] || {};
+  eq("스냅샷: 체크하면 제목을 함께 저장", savedSnap.title, rows[0].title);
+  eq("스냅샷: 마감일도 함께 저장", savedSnap.endDate, rows[0].endDate);
+  ok("스냅샷: 신청 링크·카테고리도 남는다", !!savedSnap.mobileUrl && !!savedSnap.category, JSON.stringify(savedSnap));
+  A("toast").querySelector("button").fire("click"); // 되돌리기
+
+  /* 예전 체크분({at} 만 있던 기록)은 목록을 불러올 때 보강된다 */
+  var legSeed = {}; legSeed[rows[6].campaignId] = { at: new Date().toISOString() };
+  reloadWith((function () { var s = {}; s[A_STORE] = JSON.stringify(legSeed); return s; })());
+  var hy = uiDone()[rows[6].campaignId] || {};
+  eq("보강: 예전 체크분에 마감일을 채운다", hy.endDate, rows[6].endDate);
+  eq("보강: 제목도 채운다", hy.title, rows[6].title);
+  eq("보강: 신청완료 건수는 그대로 1", A("cDone").textContent, "1");
+
+  /* 목록에서 빠진 신청완료 — 오늘 발표는 남고, 발표 다음 날이 지난 것은 정리 */
+  var seedSnaps = {
+    "snapToday00001": { at: new Date().toISOString(), title: "오늘 발표 상품", brandName: "테스트",
+      endDate: isoDay(TD - 1), category: "식품 · 과자", recruitmentCount: 10, applicationCount: 500, winRate: 2 },
+    "snapLater00002": { at: new Date().toISOString(), title: "모레 발표 상품", endDate: isoDay(TD + 2) },
+    "snapPast000003": { at: new Date().toISOString(), title: "지난 발표 상품", endDate: isoDay(TD - 2) },
+    "snapNoEnd00004": { at: new Date().toISOString(), title: "마감일 모르는 상품" }
+  };
+  seedSnaps[rows[7].campaignId] = { at: new Date().toISOString(), title: rows[7].title, endDate: rows[7].endDate };
+  reloadWith((function () { var s = {}; s[A_STORE] = JSON.stringify(seedSnaps); return s; })());
+  eq("유지: 발표가 지난 기록은 저장소에서 지운다", !!uiDone()["snapPast000003"], false);
+  eq("유지: 마감일 없는 옛 기록은 지우지 않는다", !!uiDone()["snapNoEnd00004"], true);
+  eq("유지: 오늘 발표 기록은 남는다", !!uiDone()["snapToday00001"], true);
+  eq("유지: 신청완료 탭 건수 = 실제 표시되는 수", A("cDone").textContent, "3");
+  eq("유지: 상단 신청 완료 수치도 같다", A("stDone").textContent, "3");
+
+  chipsFilter.filter(function (c) { return c.attrs["data-filter"] === "done"; })[0].fire("click");
+  eq("유지: 신청완료 탭 노출 건수", A("shownCount").textContent, "3건");
+  var cards = listCards();
+  ok("유지: 목록에서 빠진 오늘 발표 카드가 보인다", cards.indexOf('data-id="snapToday00001"') !== -1, cards.slice(0, 200));
+  ok("유지: 지난 발표 카드는 없다", cards.indexOf("snapPast000003") === -1);
+  ok("유지: 마감일 모르는 옛 기록은 카드로 만들지 않는다", cards.indexOf("snapNoEnd00004") === -1);
+  ok("배지: 오늘 발표 카드에 강조 배지", cards.indexOf("🎉 오늘 11시 발표") !== -1 &&
+    cards.indexOf("announce today") !== -1, cards.slice(0, 300));
+  ok("배지: 앞으로 발표는 발표 M/D 11시", cards.indexOf("발표 " + mdOf(TD + 3) + " 11시") !== -1, cards.slice(0, 300));
+  ok("정렬: 오늘 발표가 목록 맨 위",
+    A("list").children.length > 0 && A("list").children[0].attrs["data-id"] === "snapToday00001",
+    A("list").children.map(function (c) { return c.attrs["data-id"]; }).join(","));
+  ok("배지: 미신청 카드에는 발표일 배지가 없다",
+    KT.cardHTML(rows[0], false).indexOf("announce") === -1);
+
+  /* 발표 다음 날이 되면 같은 기록이 사라진다(발표일이 어제인 기록을 그대로 둔 상태로 다시 연 상황) */
+  var nextDaySeed = {};
+  Object.keys(uiDone()).forEach(function (k) { nextDaySeed[k] = uiDone()[k]; });
+  nextDaySeed["snapToday00001"].endDate = isoDay(TD - 2); // 발표일 = 어제
+  reloadWith((function () { var s = {}; s[A_STORE] = JSON.stringify(nextDaySeed); return s; })());
+  eq("정리: 발표 다음 날 열면 오늘 발표였던 기록이 사라진다", !!uiDone()["snapToday00001"], false);
+  eq("정리: 건수도 줄어든다", A("cDone").textContent, "2");
+  ok("정리: 알려 준다", A("toast").innerHTML.indexOf("정리했어요") !== -1, A("toast").innerHTML);
+  chipsFilter.filter(function (c) { return c.attrs["data-filter"] === "all"; })[0].fire("click");
 
   global.__RESULT__ = { pass: pass, fail: fail, log: out };
 })(this);

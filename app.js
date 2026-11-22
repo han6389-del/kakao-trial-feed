@@ -12,6 +12,10 @@
   var HIDDEN_DAYS = 60; // 숨김은 60일 뒤 정리(모집 기간이 7일이라 목록에서 이미 빠져 있다)
   var EXCL_MAX_KW = 30, EXCL_KW_LEN = 20; // 키워드 개수·길이 상한(실수 입력으로 목록이 텅 비는 것 방지)
   var RETURN_TTL = 30 * 60e3;             // 카톡에서 돌아온 걸 확인 배너로 묻는 시간(30분)
+  /* 신청완료로 체크할 때 함께 저장해 두는 상품 정보.
+   * campaigns.json 에서 빠진 뒤에도 발표일까지 카드를 보여 주려면 이 값들이 필요하다. */
+  var SNAP_FIELDS = ["title", "brandName", "imageUrl", "endDate", "mobileUrl", "category",
+    "recruitmentCount", "applicationCount", "winRate", "productId"];
 
   /* 카카오톡 앱 직행 딥링크 — scripts/fetch_campaigns.py 의 mobile_url() 과 같은 형식.
    * gift.kakao.com 모바일 페이지는 앱으로 못 넘기고 선물하기 홈으로 떨어진다.
@@ -56,6 +60,94 @@
     if (d === 0) return { label: "오늘 마감", cls: "today", days: 0 };
     if (d === 1) return { label: "내일 마감", cls: "soon", days: 1 };
     return { label: "D-" + d, cls: "", days: d };
+  }
+  /* ── 발표일 · 신청완료 스냅샷 ─────────────
+   * 카카오 선물하기 체험단은 마감(endDate) 다음 날 11:00 에 당첨자를 발표한다.
+   * 신청완료로 체크할 때 상품 정보를 같이 저장해 두면, campaigns.json 에서 빠져도
+   * 발표일까지는 카드가 남고 발표 다음 날 자동으로 정리된다. */
+  /** 발표일(day index) = 마감일 + 1일. 마감일이 없으면 NaN */
+  function announceDay(endDate) {
+    var end = dayIndex(endDate);
+    return isNaN(end) ? NaN : end + 1;
+  }
+  /** day index → "M/D" */
+  function dayToMD(idx) {
+    var d = new Date(idx * 864e5);
+    return (d.getUTCMonth() + 1) + "/" + d.getUTCDate();
+  }
+  /** 카드에 붙는 발표일 배지 — {show, label, cls, days} */
+  function announceBadge(endDate, nowMs) {
+    var ann = announceDay(endDate);
+    if (isNaN(ann)) return { show: false, label: "", cls: "", days: null };
+    var d = Math.round(ann - todayKST(nowMs));
+    if (d === 0) return { show: true, label: "🎉 오늘 11시 발표", cls: "today", days: 0 };
+    if (d > 0) return { show: true, label: "발표 " + dayToMD(ann) + " 11시", cls: "", days: d };
+    return { show: true, label: "발표 끝남", cls: "past", days: d };
+  }
+  /** 상품 → 신청완료 저장용 스냅샷(빈 값은 넣지 않는다) */
+  function snapshotOf(c, nowMs) {
+    var out = { at: new Date(nowMs || Date.now()).toISOString() };
+    if (!c) return out;
+    for (var i = 0; i < SNAP_FIELDS.length; i++) {
+      var k = SNAP_FIELDS[i], v = c[k];
+      if (v !== undefined && v !== null && v !== "") out[k] = v;
+    }
+    return out;
+  }
+  /** 기존 체크분(예전에 {at} 만 저장된 기록)에 campaigns.json 정보를 채워 넣는다. 이미 있는 값은 그대로 둔다. */
+  function hydrateApplied(applied, campaigns) {
+    var byId = {};
+    (campaigns || []).forEach(function (c) { if (c && c.campaignId) byId[c.campaignId] = c; });
+    var out = {};
+    Object.keys(applied || {}).forEach(function (id) {
+      var cur = applied[id] || {}, c = byId[id];
+      if (!c) { out[id] = cur; return; }        // 지금 목록에 없는 id 는 건드리지 않는다
+      var next = {}, k;
+      for (k in cur) if (Object.prototype.hasOwnProperty.call(cur, k)) next[k] = cur[k];
+      for (var i = 0; i < SNAP_FIELDS.length; i++) {
+        var f = SNAP_FIELDS[i];
+        if (next[f] !== undefined && next[f] !== null && next[f] !== "") continue;
+        if (c[f] !== undefined && c[f] !== null && c[f] !== "") next[f] = c[f];
+      }
+      if (!next.at) next.at = new Date().toISOString();
+      out[id] = next;
+    });
+    return out;
+  }
+  /** 발표 다음 날이 지난 신청완료 항목을 지운다(마감일이 없는 옛 항목은 안전하게 남긴다) */
+  function pruneApplied(applied, nowMs) {
+    var today = todayKST(nowMs), out = {}, removed = [];
+    Object.keys(applied || {}).forEach(function (id) {
+      var e = applied[id] || {}, ann = announceDay(e.endDate);
+      if (!isNaN(ann) && ann < today) { removed.push(id); return; }
+      out[id] = e;
+    });
+    return { applied: out, removed: removed };
+  }
+  /** campaigns.json 에서 빠졌지만 발표일이 아직 남은 신청완료 기록을 카드 모양으로 되살린다 */
+  function snapshotRows(applied, campaigns, nowMs) {
+    var have = {}, today = todayKST(nowMs), out = [];
+    (campaigns || []).forEach(function (c) { if (c && c.campaignId) have[c.campaignId] = 1; });
+    Object.keys(applied || {}).forEach(function (id) {
+      if (have[id]) return;                     // 지금 목록에 있으면 그 카드를 쓴다
+      var e = applied[id] || {}, ann = announceDay(e.endDate);
+      if (isNaN(ann) || ann < today) return;    // 마감일이 없거나 발표가 끝난 옛 기록은 카드로 만들지 않는다
+      if (!e.title) return;
+      out.push({
+        campaignId: id, title: e.title, brandName: e.brandName || "", imageUrl: e.imageUrl || "",
+        category: e.category || "", recruitmentCount: Number(e.recruitmentCount) || 0,
+        applicationCount: Number(e.applicationCount) || 0, winRate: Number(e.winRate) || 0,
+        endDate: e.endDate, mobileUrl: e.mobileUrl || "", isNew: false,
+        remainingDays: ann - today - 1, fromSnapshot: true
+      });
+    });
+    return out;
+  }
+  /** 신청완료 탭에 실제로 보이는 목록 — 발표일 가까운 순(오늘 발표가 맨 위) */
+  function doneRows(applied, campaigns, hidden, nowMs) {
+    var rows = filterHidden((campaigns || []).concat(snapshotRows(applied, campaigns, nowMs)), hidden)
+      .filter(function (c) { return !!(applied && applied[c.campaignId]); });
+    return sortList(rows, "announce");
   }
   function fmtUpdated(iso) {
     if (!iso) return "갱신 시각 없음";
@@ -145,6 +237,15 @@
       out.sort(function (a, b) {
         return (a.remainingDays - b.remainingDays) || (b.winRate - a.winRate);
       });
+    } else if (mode === "announce") {
+      // 발표일 가까운 순 — 오늘 발표가 맨 위, 마감일이 없는 옛 기록은 뒤로
+      out.sort(function (a, b) {
+        var da = announceDay(a.endDate), db = announceDay(b.endDate);
+        if (isNaN(da) && isNaN(db)) return b.winRate - a.winRate;
+        if (isNaN(da)) return 1;
+        if (isNaN(db)) return -1;
+        return (da - db) || (b.winRate - a.winRate);
+      });
     } else {
       out.sort(function (a, b) {
         return (b.winRate - a.winRate) || (a.remainingDays - b.remainingDays) ||
@@ -154,7 +255,10 @@
     return out;
   }
   function query(all, opts) {
-    return sortList((all || []).filter(function (c) { return matches(c, opts); }), (opts || {}).sort);
+    var o = opts || {};
+    var rows = (all || []).filter(function (c) { return matches(c, o); });
+    // 신청완료 탭은 정렬 선택과 무관하게 발표일 가까운 순으로 보여 준다
+    return sortList(rows, o.filter === "done" ? "announce" : o.sort);
   }
   /* ── 숨김(삭제) ─────────────────────────
    * 숨긴 상품은 목록·건수·칩 어디에도 세지 않는다. 저장은 이 폰(localStorage)에만. */
@@ -251,13 +355,32 @@
     }
     return { applied: applied, hidden: hidden, keywords: sanitizeKeywords(keywords), hasKeywords: hasKeywords };
   }
+  /** 기록 한 항목 합치기 — 붙여넣은 쪽(b)의 값이 이기되, b 에 없는 스냅샷 정보는 a 것을 남긴다 */
+  function mergeEntry(a, b) {
+    var out = {}, k;
+    [a, b].forEach(function (src) {
+      if (!src) return;
+      for (k in src) {
+        if (!Object.prototype.hasOwnProperty.call(src, k)) continue;
+        var v = src[k];
+        if (v === undefined || v === null || v === "") {
+          if (!(k in out)) out[k] = v;   // 한쪽만 비어 있으면 다른 쪽 값을 살린다
+          continue;
+        }
+        out[k] = v;
+      }
+    });
+    if (b && b.at) out.at = b.at;        // 체크 시각은 붙여넣은 쪽 기준
+    if (!out.at) out.at = new Date().toISOString();
+    return out;
+  }
   /** base 위에 extra 를 얹은 새 객체(원본 불변) */
   function mergeRecords(base, extra) {
     var out = {};
     [base, extra].forEach(function (src) {
       Object.keys(src || {}).forEach(function (k) {
         if (!recordIdOk(k)) return;
-        out[k] = src[k] || { at: new Date().toISOString() };
+        out[k] = mergeEntry(out[k], src[k]) || {};
       });
     });
     return out;
@@ -356,6 +479,9 @@
   global.KT = {
     esc: esc, num: num, pct: pct, dday: dday, todayKST: todayKST, fmtUpdated: fmtUpdated,
     matches: matches, sortList: sortList, query: query, summarize: summarize, cardHTML: cardHTML,
+    announceDay: announceDay, dayToMD: dayToMD, announceBadge: announceBadge, snapshotOf: snapshotOf,
+    hydrateApplied: hydrateApplied, pruneApplied: pruneApplied, snapshotRows: snapshotRows,
+    doneRows: doneRows, SNAP_FIELDS: SNAP_FIELDS,
     scopeRows: scopeRows, TABS: TABS,
     deepLink: deepLink, groupKeyOf: groupKeyOf, catLabel: catLabel, CAT_GROUPS: CAT_GROUPS,
     isHiddenId: isHiddenId, filterHidden: filterHidden, catCounts: catCounts,
@@ -396,9 +522,19 @@
   }
   function isDone(id) { return !!state.applied[id]; }
   function setDone(id, done) {
-    if (done) state.applied[id] = { at: new Date().toISOString() };
+    // 체크할 때 상품 정보를 함께 저장한다 — 목록에서 빠진 뒤에도 발표일까지 카드를 보여 주기 위해서다
+    if (done) state.applied[id] = snapshotOf(findCampaign(id));
     else delete state.applied[id];
     saveApplied();
+  }
+  /** 저장된 신청완료를 지금 목록에 맞춘다 — ① 예전 체크분 정보 보강(hydrate) ② 발표가 끝난 것 정리(prune) */
+  function syncApplied() {
+    var before = JSON.stringify(state.applied);
+    var pruned = pruneApplied(hydrateApplied(state.applied, rawCampaigns()), Date.now());
+    state.applied = pruned.applied;
+    var changed = JSON.stringify(state.applied) !== before;
+    if (changed) saveApplied();
+    return { changed: changed, removed: pruned.removed };
   }
 
   /* ── 숨김 저장소 ─────────────────────── */
@@ -440,11 +576,15 @@
       .then(function (d) {
         state.data = d;
         state.limit = PAGE;
+        var sync = syncApplied();
         renderAll();
+        if (sync.removed.length) {
+          toast("발표일이 지난 " + num(sync.removed.length) + "건을 신청완료에서 정리했어요");
+        }
       })
       .catch(function (err) {
         // 단일 파일(오프라인) 배포본은 데이터가 파일 안에 들어 있다
-        if (global.__DATA__) { state.data = global.__DATA__; state.limit = PAGE; renderAll(); return; }
+        if (global.__DATA__) { state.data = global.__DATA__; state.limit = PAGE; syncApplied(); renderAll(); return; }
         $("updatedAt").textContent = "데이터를 불러오지 못했어요";
         emptyBox.hidden = false;
         emptyBox.innerHTML = '<span class="big">⚠️</span>campaigns.json 을 못 읽었어요.<br>' +
@@ -453,15 +593,25 @@
       });
   }
 
-  function allCampaigns() { return (state.data && state.data.campaigns) || []; }
+  function rawCampaigns() { return (state.data && state.data.campaigns) || []; }
+  /** 화면·건수에 쓰는 목록 — campaigns.json + (목록에서 빠졌지만 발표일이 남은) 신청완료 스냅샷 */
+  function allCampaigns() {
+    var rows = rawCampaigns();
+    return rows.concat(snapshotRows(state.applied, rows, Date.now()));
+  }
   /** 숨긴 상품을 뺀, 화면·건수에 실제로 쓰는 목록 */
   function visibleCampaigns() { return filterHidden(allCampaigns(), state.hidden); }
   function hiddenCount() { return allCampaigns().length - visibleCampaigns().length; }
 
   /* ── 렌더 ─────────────────────────────── */
-  function cardHTML(c, done, inDoneTab) {
-    var dd = dday(c.endDate);
+  function cardHTML(c, done, inDoneTab, nowMs) {
+    var dd = dday(c.endDate, nowMs);
     done = !!done;
+    // 신청완료 카드에는 발표일 배지를 붙인다 — 오늘 발표면 강조
+    var ab = done ? announceBadge(c.endDate, nowMs) : null;
+    var announceHTML = ab && ab.show
+      ? '<span class="announce' + (ab.cls ? " " + ab.cls : "") + '">' + esc(ab.label) + "</span>"
+      : "";
     // 신청완료 탭에서는 '체크 해제(미신청으로)' 동작임이 보이게 문구를 바꿔 둔다
     var toggleText = done ? (inDoneTab ? "↩ 미신청으로" : "✓ 완료") : "완료 체크";
     var toggleLabel = done
@@ -488,6 +638,7 @@
       "</div>" +
       '<div class="row">' +
         '<span class="dday' + (dd.cls ? " " + dd.cls : "") + '">' + dd.label + "</span>" +
+        announceHTML +
         (c.isNew ? '<span class="newtag">NEW</span>' : "") +
         '<button class="del" type="button" data-hide="' + esc(c.campaignId) + '" ' +
           'aria-label="이 상품을 목록에서 숨기기" title="목록에서 숨기기">' +
@@ -532,7 +683,8 @@
       "신규 기준: " + esc(d.newRule || "-") + "<br>" +
       "카테고리 칩은 카카오 대분류를 묶은 것이고, 분류가 없는 상품은 상품명으로 보정합니다.<br>" +
       "[완료 체크]를 누르면 그 상품이 ‘신청완료’ 탭으로 옮겨집니다(이 폰에만 저장).<br>" +
-      "카드의 [✕ 숨기기]를 누르면 목록에서 빠집니다(이 폰에만 저장)." +
+      "카드의 [✕ 숨기기]를 누르면 목록에서 빠집니다(이 폰에만 저장).<br>" +
+      "발표일(마감 다음 날 11시)이 지나면 신청완료에서 자동으로 정리됩니다." +
       (state.excl.length
         ? "<br>제외 키워드 " + num(state.excl.length) + "개로 " + num(excludedCount()) + "건을 가리는 중" +
           '<br><button type="button" class="linkish" data-excluded-open="1">제외 키워드 관리</button>'
@@ -588,7 +740,7 @@
     var from = reset ? 0 : list.children.length;
     var frag = document.createElement("div");
     frag.innerHTML = shown.slice(from).map(function (c) {
-      return cardHTML(c, isDone(c.campaignId), state.filter === "done");
+      return cardHTML(c, isDone(c.campaignId), state.filter === "done", Date.now());
     }).join("");
     while (frag.firstChild) list.appendChild(frag.firstChild);
 
@@ -850,6 +1002,7 @@
     saveApplied();
     saveHidden();
     saveKeywords();
+    syncApplied(); // 옮겨 온 예전 기록도 지금 목록으로 보강하고, 발표가 끝난 것은 정리
     renderAll();
     closeTransfer();
     toast((replace ? "기록을 덮어썼어요" : "기록을 불러왔어요") +
@@ -1044,6 +1197,9 @@
     clearLastOpen();
   }
   function maybePromptReturn() {
+    // 날짜가 바뀌었거나 처음 불러온 뒤라면 정리·보강할 것이 있다 — 배너보다 먼저 반영한다
+    var sync = syncApplied();
+    if (sync.changed && state.data) renderAll();
     if (document.hidden) return; // 아직 카톡에 가 있는 상태
     var lo = readLastOpen(), bar = $("retBar");
     if (!lo) {
