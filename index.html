@@ -18,7 +18,7 @@
   <div class="hd-row">
     <div>
       <h1>🎁 카카오 체험단</h1>
-      <p class="sub">선물하기 체험단 · 내 기준으로 이미 걸러둔 목록</p>
+      <p class="sub">선물하기 체험단 전체 목록 · 당첨확률과 마감일까지</p>
     </div>
     <div class="hd-act">
       <button id="splitKakao" type="button" hidden aria-label="분할 화면으로 카톡 열기" title="분할 화면으로 카톡 열기">🪟 분할 카톡</button>
@@ -58,7 +58,7 @@
     <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="beauty">뷰티 <b>0</b></button>
     <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="fashion">패션 <b>0</b></button>
     <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="leisure">레저 <b>0</b></button>
-    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="pet">반려 <b>0</b></button>
+    <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="pet">유아동·반려 <b>0</b></button>
     <button class="chip cat" type="button" role="tab" aria-selected="false" data-cat="etc">기타 <b>0</b></button>
   </div>
   <div class="sortrow">
@@ -137,6 +137,8 @@
     </div>
     <p class="sheet-desc">상품명·브랜드·카테고리에 이 단어가 들어간 상품은 <b>전체 · 오늘 신규</b> 목록과 건수에서 빠져요.
       <b>신청완료</b> 탭은 그대로 보여요. 저장은 이 폰(브라우저)에만 됩니다.</p>
+    <button class="kw-preset" id="kwPreset" type="button">👨 여성·아동·뷰티 한 번에 제외</button>
+    <p class="kw-preset-note" id="kwPresetNote"></p>
     <div class="kw-add">
       <input id="kwInput" type="text" placeholder="예: 여성, 아동, 화장품 (쉼표로 여러 개)"
         autocomplete="off" enterkeyhint="done" aria-label="제외 키워드 입력">

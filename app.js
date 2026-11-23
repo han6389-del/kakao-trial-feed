@@ -11,6 +11,9 @@
   var KEEP_DAYS = 45;
   var HIDDEN_DAYS = 60; // 숨김은 60일 뒤 정리(모집 기간이 7일이라 목록에서 이미 빠져 있다)
   var EXCL_MAX_KW = 30, EXCL_KW_LEN = 20; // 키워드 개수·길이 상한(실수 입력으로 목록이 텅 비는 것 방지)
+  /* 1탭 프리셋 — ‘🚫 제외’ 시트의 버튼 하나로 넣는 표준 키워드.
+   * 공개 피드는 전체를 보여 주고, 자기 취향으로 가리는 건 이 폰에서 한 번에 켜고 끈다. */
+  var PRESET_KEYWORDS = ["여성", "유아동", "스킨케어", "메이크업", "향수", "주얼리", "임산부", "육아", "생리대"];
   var RETURN_TTL = 30 * 60e3;             // 카톡에서 돌아온 걸 확인 배너로 묻는 시간(30분)
   /* 신청완료로 체크할 때 함께 저장해 두는 상품 정보.
    * campaigns.json 에서 빠진 뒤에도 발표일까지 카드를 보여 주려면 이 값들이 필요하다. */
@@ -268,7 +271,7 @@
     { key: "beauty", label: "뷰티", re: /^뷰티/ },
     { key: "fashion", label: "패션", re: /^패션/ },
     { key: "leisure", label: "레저", re: /^레저/ },
-    { key: "pet", label: "반려", re: /^(유아동·반려|반려|유아동)/ },
+    { key: "pet", label: "유아동·반려", re: /^(유아동·반려|유아동|반려)/ },
     { key: "etc", label: "기타" }
   ];
   /** 상품이 속할 카테고리 그룹 키 */
@@ -571,6 +574,16 @@
     var low = String(kw == null ? "" : kw).toLowerCase();
     return sanitizeKeywords(list).filter(function (k) { return k.toLowerCase() !== low; });
   }
+  /** 1탭 프리셋 — 표준 키워드를 기존 목록에 더한 새 배열(있던 키워드는 그대로, 중복은 늘지 않는다) */
+  function applyPreset(list) {
+    return addKeywords(list, PRESET_KEYWORDS.join(","));
+  }
+  /** 프리셋 키워드가 하나도 빠짐없이 들어 있는지 */
+  function hasPreset(list) {
+    var set = {};
+    sanitizeKeywords(list).forEach(function (k) { set[k.toLowerCase()] = 1; });
+    return PRESET_KEYWORDS.every(function (k) { return !!set[String(k).toLowerCase()]; });
+  }
   /** 상품에서 처음 걸리는 제외 키워드(없으면 "") */
   function hitKeyword(c, kws) {
     if (!kws || !kws.length || !c) return "";
@@ -630,6 +643,7 @@
     applyWonSort: applyWonSort, wonRows: wonRows,
     parseKeywords: parseKeywords, sanitizeKeywords: sanitizeKeywords, addKeywords: addKeywords,
     removeKeyword: removeKeyword, hitKeyword: hitKeyword, excludedBy: excludedBy,
+    applyPreset: applyPreset, hasPreset: hasPreset, PRESET_KEYWORDS: PRESET_KEYWORDS,
     filterExcluded: filterExcluded, shouldPromptReturn: shouldPromptReturn,
     STORE: STORE, HIDDEN_STORE: HIDDEN_STORE, EXCL_STORE: EXCL_STORE, OPEN_STORE: OPEN_STORE,
     PAGE: PAGE, KEEP_DAYS: KEEP_DAYS, HIDDEN_DAYS: HIDDEN_DAYS,
@@ -864,8 +878,9 @@
 
     var d = state.data || {};
     var hiddenN = hiddenCount();
-    $("foot").innerHTML = "수집 " + num(d.rawTotalCount) + "건 중 내 기준 통과 " + num(d.totalCount) +
-      "건 · 제외 " + num(d.excludedCount) + "건<br>" +
+    var exN = Math.round(Number(d.excludedCount) || 0);
+    $("foot").innerHTML = "수집 " + num(d.rawTotalCount) + "건" +
+      (exN ? " 중 " + num(d.totalCount) + "건 표시 · 걸러낸 " + num(exN) + "건" : " 전체를 보여 줍니다") + "<br>" +
       "신규 기준: " + esc(d.newRule || "-") + "<br>" +
       "카테고리 칩은 카카오 대분류를 묶은 것이고, 분류가 없는 상품은 상품명으로 보정합니다.<br>" +
       "[완료 체크]를 누르면 그 상품이 ‘신청완료’ 탭으로 옮겨집니다(이 폰에만 저장).<br>" +
@@ -1333,16 +1348,16 @@
   function renderKeywordList() {
     var box = $("kwList"), clr = $("kwClearAll");
     if (clr) clr.disabled = !state.excl.length;
-    if (!box) return;
-    if (!state.excl.length) {
-      box.innerHTML = '<p class="kw-empty">등록된 제외 키워드가 없어요.<br>예: 여성, 아동, 화장품, 커피</p>';
-      return;
+    if (box) {
+      box.innerHTML = state.excl.length
+        ? state.excl.map(function (k) {
+            return '<button class="kw-chip" type="button" data-kw-del="' + esc(k) + '" aria-label="' + esc(k) +
+              ' 제외 키워드 삭제" title="이 키워드 지우기"><span>' + esc(k) + '</span>' +
+              '<span class="x" aria-hidden="true">✕</span></button>';
+          }).join("")
+        : '<p class="kw-empty">등록된 제외 키워드가 없어요.<br>예: 여성, 아동, 화장품, 커피</p>';
     }
-    box.innerHTML = state.excl.map(function (k) {
-      return '<button class="kw-chip" type="button" data-kw-del="' + esc(k) + '" aria-label="' + esc(k) +
-        ' 제외 키워드 삭제" title="이 키워드 지우기"><span>' + esc(k) + '</span>' +
-        '<span class="x" aria-hidden="true">✕</span></button>';
-    }).join("");
+    renderPresetState();
   }
   function openExcluded() {
     var box = $("excluded");
@@ -1377,9 +1392,38 @@
     msg.textContent = "제외 키워드 " + num(state.excl.length) + "개 · 지금 목록에서 " +
       num(excludedCount()) + "건 가리는 중";
   }
+  /** 1탭 프리셋 버튼 상태 — 이미 다 들어 있으면 ‘적용됨’으로 보인다 */
+  function renderPresetState() {
+    var btn = $("kwPreset"), note = $("kwPresetNote");
+    var on = hasPreset(state.excl);
+    if (btn && btn.classList) btn.classList.toggle("is-on", on);
+    if (note) note.textContent = on
+      ? "✓ 지금 적용됨 · 목록에서 " + num(excludedCount()) + "건을 가리고 있어요. 키워드를 지우면 바로 풀려요."
+      : "여성·유아동·스킨케어·메이크업·향수·주얼리·임산부·육아·생리대 " + PRESET_KEYWORDS.length +
+        "개를 한 번에 넣어요. ‘유아동’은 유아동·반려 칸 전체(반려용품 포함)를 가려요. 넣은 키워드는 위에서 하나씩 지울 수 있어요.";
+  }
+  /** 1탭 프리셋 버튼 — 이미 있는 키워드는 건드리지 않고 빠진 것만 더한다 */
+  function applyPresetFromButton() {
+    var msg = $("kwMsg");
+    var before = state.excl.length;
+    var next = applyPreset(state.excl);
+    if (next.length === before) {
+      if (msg) msg.textContent = "이미 여성·유아동·뷰티 키워드 " + PRESET_KEYWORDS.length +
+        "개가 모두 들어 있어요 · 지금 목록에서 " + num(excludedCount()) + "건 가리는 중";
+      renderPresetState();
+      return;
+    }
+    state.excl = next;
+    saveKeywords();
+    renderKeywordList();
+    renderAll();
+    if (msg) msg.textContent = "👨 여성·유아동·뷰티 " + (next.length - before) + "개를 넣었어요 · 키워드 " +
+      num(next.length) + "개 · 지금 목록에서 " + num(excludedCount()) + "건 가리는 중";
+  }
   $("kwOpen").addEventListener("click", openExcluded);
   $("excludedClose").addEventListener("click", closeExcluded);
   $("kwAdd").addEventListener("click", addKeywordFromInput);
+  $("kwPreset").addEventListener("click", applyPresetFromButton);
   $("kwInput").addEventListener("keydown", function (e) {
     if (e.key === "Enter" || e.keyCode === 13) {
       if (e.preventDefault) e.preventDefault();

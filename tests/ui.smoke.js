@@ -477,6 +477,68 @@
   ok("키워드: 모두 지우기 → 빈 목록 안내", A("kwList").innerHTML.indexOf("등록된 제외 키워드가 없어요") !== -1);
   eq("키워드: 모두 지우면 전체 탭 원복", A("cAll").textContent, KT.num(total0 - 1));
 
+  /* ══ 1탭 프리셋 — [👨 여성·아동·뷰티 한 번에 제외] ══ */
+  ok("마크업: 프리셋 버튼·안내가 시트에 있다",
+    html.indexOf('id="kwPreset"') !== -1 && html.indexOf('id="kwPresetNote"') !== -1 &&
+    html.indexOf("여성·아동·뷰티 한 번에 제외") !== -1);
+  A("kwOpen").fire("click");
+  ok("프리셋: 처음엔 안내만 있고 ‘적용됨’이 아니다",
+    A("kwPresetNote").textContent.indexOf("한 번에 넣어요") !== -1 &&
+    A("kwPreset").classList.contains("is-on") === false, A("kwPresetNote").textContent);
+
+  var PRESET = KT.PRESET_KEYWORDS.slice();
+  A("kwPreset").fire("click");
+  eq("프리셋: 9개가 한 번에 저장", uiKws().join("|"), PRESET.join("|"));
+  eq("프리셋: 배지 9", A("kwBadge").textContent, "9");
+  eq("프리셋: 목록이 실제로 줄어든다", A("shownCount").textContent,
+    KT.query(rows, { filter: "all", cat: "all", sort: "rate", isDone: function (id) { return !!uiDone()[id]; },
+      exclude: uiKws() }).length + "건");
+  eq("프리셋: 전체 탭 건수도 걸린 만큼", A("cAll").textContent,
+    KT.num(KT.scopeRows(rows, "all", function (id) { return !!uiDone()[id]; }, uiKws()).length));
+  ok("프리셋: 넣었다고 안내", A("kwMsg").textContent.indexOf("넣었어요") !== -1, A("kwMsg").textContent);
+  ok("프리셋: 각 키워드가 칩으로 보인다", PRESET.every(function (k) {
+    return A("kwList").innerHTML.indexOf('data-kw-del="' + k + '"') !== -1;
+  }), A("kwList").innerHTML);
+  ok("프리셋: ‘적용됨’으로 바뀐다", A("kwPreset").classList.contains("is-on") === true &&
+    A("kwPresetNote").textContent.indexOf("적용됨") !== -1, A("kwPresetNote").textContent);
+
+  /* 두 번 눌러도 늘지 않는다 */
+  A("kwPreset").fire("click");
+  eq("프리셋: 두 번 눌러도 9개", uiKws().length, 9);
+  ok("프리셋: 이미 들어 있다고 안내", A("kwMsg").textContent.indexOf("이미") !== -1, A("kwMsg").textContent);
+
+  /* 직접 넣은 키워드는 건드리지 않고 빠진 것만 더한다 */
+  A("kwInput").value = "커피";
+  A("kwAdd").fire("click");
+  eq("프리셋: 직접 넣은 키워드 유지", uiKws().length, 10);
+  A("kwPreset").fire("click");
+  eq("프리셋: 다시 눌러도 중복 없음", uiKws().length, 10);
+  eq("프리셋: 직접 넣은 키워드가 남아 있다", uiKws().indexOf("커피") !== -1, true);
+
+  /* 하나 지우면 ‘적용됨’이 풀리고, 다시 누르면 그 하나만 채운다 */
+  A("kwList").fire("click", {
+    target: {
+      closest: function (sel) {
+        if (sel !== "[data-kw-del]") return null;
+        var b = new El("button"); b.attrs["data-kw-del"] = "육아"; return b;
+      }
+    }
+  });
+  eq("프리셋: 지운 키워드는 빠진다", uiKws().indexOf("육아"), -1);
+  eq("프리셋: 하나 빠지면 ‘적용됨’ 해제", A("kwPreset").classList.contains("is-on"), false);
+  A("kwPreset").fire("click");
+  eq("프리셋: 다시 누르면 빠진 것만 채워 10개", uiKws().length, 10);
+  eq("프리셋: 빠졌던 키워드가 돌아온다", uiKws().indexOf("육아") !== -1, true);
+  ok("프리셋: 하나만 넣었다고 안내", A("kwMsg").textContent.indexOf("1개를 넣었어요") !== -1, A("kwMsg").textContent);
+
+  /* 프리셋을 걸어도 신청완료 탭은 그대로 */
+  eq("프리셋: 신청완료 건수는 그대로", A("cDone").textContent, "1");
+
+  /* 모두 지우기로 프리셋까지 초기화 */
+  A("kwClearAll").fire("click");
+  eq("프리셋: 모두 지우면 0개", uiKws().length, 0);
+  eq("프리셋: 모두 지우면 ‘적용됨’ 해제", A("kwPreset").classList.contains("is-on"), false);
+
   /* 시트 닫기 — ✕ 와 배경 누르기, Enter 키 (footer 링크로도 열린다) */
   A("excludedClose").fire("click");
   eq("키워드 시트: ✕ 로 닫힌다", A("excluded").hidden, true);

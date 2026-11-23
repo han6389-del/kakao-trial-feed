@@ -3,13 +3,16 @@
 
 - 파트너 API 는 브라우저 없이 표준 라이브러리만으로 호출된다.
 - 페이지네이션은 0-indexed 이며, page=1 부터 시작하면 앞쪽 최신 100건이 통째로 빠진다.
-- 내 기준(여성 화장품/스킨케어/메이크업/향수, 여성 의류/언더웨어/주얼리,
-  유아동/아기/임산부 용품 제외 · 반려견 용품 포함)으로 걸러낸다.
+- 기본은 **걸러내지 않고 전부** 담는다(누구나 쓰는 공개 피드). 성별·품목 취향으로 가리는 일은
+  앱 화면의 ‘🚫 제외’ 시트에서 이 폰(localStorage)에만 건다.
+- 예전처럼 여성 화장품/스킨케어/메이크업/향수, 여성 의류/언더웨어/주얼리, 유아동/아기/임산부 용품을
+  빼고 반려견 용품만 남긴 목록이 필요하면 --use-default-exclude 를 준다.
 
 사용:
-    python3 scripts/fetch_campaigns.py                 # data/campaigns.json 갱신
-    python3 scripts/fetch_campaigns.py --dry-run       # 파일 쓰지 않고 통계만
-    python3 scripts/fetch_campaigns.py --show-excluded # 제외 목록까지 출력
+    python3 scripts/fetch_campaigns.py                     # data/campaigns.json 갱신(전체)
+    python3 scripts/fetch_campaigns.py --dry-run           # 파일 쓰지 않고 통계만
+    python3 scripts/fetch_campaigns.py --use-default-exclude          # 예전 내 기준으로 걸러서
+    python3 scripts/fetch_campaigns.py --use-default-exclude --show-excluded  # 제외 목록까지 출력
 """
 
 from __future__ import annotations
@@ -43,7 +46,8 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 )
 
-# --- 내 제외 기준 -------------------------------------------------------
+# --- (선택) 내 제외 기준 ------------------------------------------------
+# 기본 실행에서는 쓰이지 않는다. --use-default-exclude 를 줬을 때만 적용된다.
 # 통째로 제외하는 대분류 (단, 반려동물 용품은 아래 PET_KEYWORDS 로 구제한다)
 EXCLUDE_LDISPLAY = {"유아동·반려"}
 
@@ -173,6 +177,8 @@ def main() -> int:
     ap.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "data", "campaigns.json"))
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--show-excluded", action="store_true")
+    ap.add_argument("--use-default-exclude", action="store_true",
+                    help="예전처럼 내 기준(여성·유아동·뷰티)으로 걸러낸 목록을 만든다(기본값은 전체 포함)")
     args = ap.parse_args()
 
     now = datetime.now(KST)
@@ -186,7 +192,7 @@ def main() -> int:
     kept: list[dict] = []
     dropped: list[tuple[dict, str]] = []
     for raw in raw_items:
-        reason = exclusion_reason(raw)
+        reason = exclusion_reason(raw) if args.use_default_exclude else None
         if reason:
             dropped.append((raw, reason))
         else:
@@ -200,21 +206,28 @@ def main() -> int:
         "source": API_URL,
         "rawTotalCount": len(raw_items),
         "excludedCount": len(dropped),
+        "excludeMode": "default" if args.use_default_exclude else "none",
         "totalCount": len(kept),
         "newCount": new_count,
         "newRule": f"마감 {NEW_MIN_REMAINING_DAYS}일 이상 남은 최신 등록분(모집 7일 기준)",
         "campaigns": kept,
     }
 
-    print(f"수집 {len(raw_items)}건 → 필터 후 {len(kept)}건 (신규 {new_count}건)")
+    if args.use_default_exclude:
+        print(f"수집 {len(raw_items)}건 → 내 기준 제외 {len(dropped)}건 → {len(kept)}건 (신규 {new_count}건)")
+    else:
+        print(f"수집 {len(raw_items)}건 → 전체 {len(kept)}건 (신규 {new_count}건, 제외 없음)")
     top = kept[:3]
     for i, c in enumerate(top, 1):
         print(f"  {i}. [{c['winRate']}%] 모집{c['recruitmentCount']}/신청{c['applicationCount']} "
               f"D-{c['remainingDays']} {c['title'][:40]}")
     if args.show_excluded:
-        print("\n제외 목록:")
-        for raw, reason in dropped:
-            print(f"  - {reason} | {(raw.get('campaignTitle') or '')[:60]}")
+        if not args.use_default_exclude:
+            print("\n제외 목록: 없음 (전체 포함 모드 — --use-default-exclude 와 함께 쓰면 사유까지 나옵니다)")
+        else:
+            print("\n제외 목록:")
+            for raw, reason in dropped:
+                print(f"  - {reason} | {(raw.get('campaignTitle') or '')[:60]}")
 
     if args.dry_run:
         print("(dry-run: 파일을 쓰지 않았습니다)")
