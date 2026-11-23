@@ -10,7 +10,9 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Looper;
 import android.view.View;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -25,6 +27,9 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import java.net.URISyntaxException;
 import java.util.Locale;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 카카오 체험단 피드(https://han6389-del.github.io/kakao-trial-feed/)를 전체 화면 WebView 로 보여주고,
@@ -38,6 +43,8 @@ public class MainActivity extends Activity {
     private static final int REQUEST_POST_NOTIFICATIONS = 1001;
     private static final String APP_PREFS = "app_state";
     private static final String KEY_PERMISSION_ASKED = "notification_permission_asked";
+    /** 웹(피드)이 분할 화면 상태를 묻고 카톡을 옆 칸에 띄울 때 쓰는 다리 이름 */
+    private static final String SPLIT_BRIDGE = "AndroidSplitBridge";
 
     private WebView webView;
     private SwipeRefreshLayout swipeRefresh;
@@ -93,7 +100,11 @@ public class MainActivity extends Activity {
         settings.setSupportMultipleWindows(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " KakaoTrialFeedApp/1.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " KakaoTrialFeedApp/1.1");
+
+        // 분할 화면에서 카톡을 옆 칸에 띄우고, 전체 화면이면 웹이 앱 페어 안내를 띄울 수 있게 한다.
+        // (WebView 안에서는 피드 페이지(han6389-del.github.io)만 열린다)
+        webView.addJavascriptInterface(new SplitBridge(), SPLIT_BRIDGE);
 
         webView.setBackgroundColor(0xFFFFFFFF);
         webView.setWebViewClient(new AppWebViewClient());
@@ -153,7 +164,7 @@ public class MainActivity extends Activity {
         intent.setSelector(null);
 
         try {
-            startActivity(intent);
+            startActivity(withAdjacentFlags(intent));
             return true;
         } catch (ActivityNotFoundException | SecurityException e) {
             String fallbackUrl = intent.getStringExtra("browser_fallback_url");
@@ -178,7 +189,7 @@ public class MainActivity extends Activity {
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             intent.addCategory(Intent.CATEGORY_BROWSABLE);
-            startActivity(intent);
+            startActivity(withAdjacentFlags(intent));
             return true;
         } catch (ActivityNotFoundException | SecurityException e) {
             String lower = url.toLowerCase(Locale.ROOT);
@@ -188,6 +199,83 @@ public class MainActivity extends Activity {
                 toast(getString(R.string.error_no_app));
             }
             return true;
+        }
+    }
+
+    /* ── 분할 화면(갤럭시 폴드) ────────────────────────────────
+     * 분할 화면에서 카톡을 그냥 열면 이 앱 자리를 카톡이 덮어써 버린다.
+     * 분할 화면일 때는 LAUNCH_ADJACENT 로 옆 칸에 띄워 피드가 그대로 남게 한다. */
+
+    private boolean inSplitScreen() {
+        return isInMultiWindowMode();
+    }
+
+    /** 분할 화면일 때만 '옆 칸'에 새 창을 띄우는 플래그를 붙인다. */
+    private Intent withAdjacentFlags(Intent intent) {
+        if (inSplitScreen()) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
+        }
+        return intent;
+    }
+
+    /** JS 다리는 메인 스레드가 아니므로, 화면 상태 확인·실행은 메인 스레드에서 하고 결과만 돌려준다. */
+    private <T> T onMainThread(Callable<T> task, T fallback) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            try {
+                return task.call();
+            } catch (Exception e) {
+                return fallback;
+            }
+        }
+        final Object[] box = new Object[1];
+        final CountDownLatch latch = new CountDownLatch(1);
+        runOnUiThread(() -> {
+            try {
+                box[0] = task.call();
+            } catch (Exception ignored) {
+                // fallback
+            }
+            latch.countDown();
+        });
+        try {
+            latch.await(1, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        @SuppressWarnings("unchecked") T result = (T) box[0];
+        return result == null ? fallback : result;
+    }
+
+    /** 웹(피드)에서 부르는 다리 — 분할 화면 여부 확인과 카톡 옆 칸 열기만 노출한다. */
+    private final class SplitBridge {
+
+        @JavascriptInterface
+        public boolean isMultiWindow() {
+            return onMainThread(MainActivity.this::inSplitScreen, Boolean.FALSE);
+        }
+
+        @JavascriptInterface
+        public boolean openKakaoAdjacent() {
+            return onMainThread(MainActivity.this::openKakaoAdjacentNow, Boolean.FALSE);
+        }
+    }
+
+    /** 전체 화면이면 false — 웹이 '앱 페어' 안내를 띄운다. 분할 화면이면 카톡을 옆 칸에 띄운다. */
+    private boolean openKakaoAdjacentNow() {
+        if (!inSplitScreen()) {
+            return false;
+        }
+        Intent launch = getPackageManager().getLaunchIntentForPackage(KAKAO_TALK_PACKAGE);
+        if (launch == null) {
+            promptInstallKakaoTalk();
+            return false;
+        }
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
+        try {
+            startActivity(launch);
+            return true;
+        } catch (ActivityNotFoundException | SecurityException e) {
+            return false;
         }
     }
 

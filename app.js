@@ -1528,6 +1528,49 @@
     global.addEventListener("focus", maybePromptReturn);
   }
 
+  /* ── 분할 화면 카톡 (Android 앱 전용) ───────────────────────────────
+   * 앱(WebView)이 넣어 둔 AndroidSplitBridge 가 있을 때만 헤더에 버튼이 보인다(일반 브라우저는 그대로).
+   * - 분할 화면: 카톡을 옆 칸에 띄운다(앱이 LAUNCH_ADJACENT 로 실행) — 피드 화면을 덮지 않는다
+   * - 전체 화면: 갤럭시 폴드 '앱 페어'를 한 번 저장해 두면 1초 만에 같이 열린다는 안내를 띄운다 */
+  function splitBridge() {
+    return (global && global.AndroidSplitBridge) || null;
+  }
+  function splitState(bridge) {
+    try { return !!(bridge && bridge.isMultiWindow && bridge.isMultiWindow()); } catch (e) { return false; }
+  }
+  function showSplitTip(on) {
+    var tip = $("splitTip");
+    if (tip) tip.hidden = !on;
+    if (document.body && document.body.classList) document.body.classList.toggle("has-splittip", !!on);
+  }
+  function syncSplitButton() {
+    var btn = $("splitKakao"), bridge = splitBridge();
+    if (!btn) return;
+    if (!bridge) { btn.hidden = true; return; } // 일반 브라우저에서는 버튼을 두지 않는다
+    btn.hidden = false;
+    var inSplit = splitState(bridge);
+    if (btn.classList) btn.classList.toggle("ready", inSplit);
+    btn.title = inSplit ? "카톡을 옆 칸에 열기" : "분할 화면으로 쓰는 방법";
+    if (btn.setAttribute) btn.setAttribute("aria-label", btn.title);
+  }
+  function openKakaoAdjacent() {
+    var bridge = splitBridge();
+    if (!bridge) return false;
+    try {
+      if (!splitState(bridge)) { showSplitTip(true); return false; }
+      var opened = !!(bridge.openKakaoAdjacent && bridge.openKakaoAdjacent());
+      if (!opened) toast("카톡을 열지 못했어요. 카톡 설치를 확인해 주세요.");
+      return opened;
+    } catch (e) {
+      toast("카톡을 열지 못했어요.");
+      return false;
+    }
+  }
+  $("splitKakao").addEventListener("click", openKakaoAdjacent);
+  $("splitTipClose").addEventListener("click", function () { showSplitTip(false); });
+  if (global.addEventListener) global.addEventListener("resize", syncSplitButton);
+  syncSplitButton();
+
   $("refresh").addEventListener("click", load);
 
   if ("IntersectionObserver" in global) {

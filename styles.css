@@ -35,6 +35,17 @@ h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.3px}
   display:flex;align-items:center;justify-content:center;transition:transform .3s
 }
 #refresh.spin{transform:rotate(360deg)}
+/* 헤더 오른쪽 버튼 묶음 — 분할 카톡(앱에서만) + 새로고침 */
+.hd-act{flex:0 0 auto;display:flex;align-items:center;gap:6px}
+#splitKakao{
+  flex:0 0 auto;height:32px;padding:0 10px;border-radius:999px;border:0;
+  background:rgba(255,255,255,.55);color:#5c5300;font-size:12px;font-weight:800;letter-spacing:-.3px;
+  display:flex;align-items:center;gap:4px;white-space:nowrap;transition:background .2s
+}
+#splitKakao[hidden]{display:none}
+#splitKakao:active{background:rgba(255,255,255,.85)}
+#splitKakao.ready{background:var(--ink);color:#fff}
+@media (max-width:359px){#splitKakao{padding:0 8px;font-size:11.5px}}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
 .stat{background:rgba(255,255,255,.62);border-radius:12px;padding:8px 6px;text-align:center}
 .stat .v{display:block;font-size:17px;font-weight:800;letter-spacing:-.5px}
@@ -277,6 +288,23 @@ footer .linkish{
 }
 body.has-retbar{padding-bottom:calc(96px + var(--safe-b))}
 body.has-retbar #toast{bottom:calc(78px + var(--safe-b))}
+
+/* ── 분할 화면 안내(앱 전용) ─────────────── */
+.split-tip{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + var(--safe-b));z-index:55;
+  width:min(520px,calc(100% - 20px));background:#fff;border-radius:16px;
+  box-shadow:0 8px 30px rgba(0,0,0,.18),0 0 0 1px var(--line);padding:14px 16px 12px
+}
+.split-tip[hidden]{display:none}
+.split-tip .split-tip-t{margin:0;font-size:14px;font-weight:800;letter-spacing:-.3px}
+.split-tip .split-tip-b{margin:5px 0 0;font-size:12.5px;line-height:1.5;color:#555}
+.split-tip .split-tip-b b{color:var(--ink)}
+.split-tip .split-tip-a{display:flex;justify-content:flex-end;margin-top:10px}
+.split-tip .split-tip-a button{
+  border:0;border-radius:10px;background:var(--kakao);color:var(--ink);
+  font-size:13px;font-weight:800;padding:8px 18px
+}
+body.has-splittip #toast{bottom:calc(148px + var(--safe-b))}
 
 /* ── 제외 키워드 시트 ─────────────── */
 .kw-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}

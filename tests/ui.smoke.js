@@ -262,7 +262,7 @@
    * 실제 사용 흐름: 크롬(기록 있음) → 복사 → 새 앱(기록 일부) → 붙여넣어 합치기/덮어쓰기 */
   var TRANSFER_IDS = ["list", "foot", "empty", "transfer", "transferCopy", "transferMerge", "transferReplace", "transferClose",
     "kwOpen", "excluded", "excludedClose", "kwInput", "kwAdd", "kwList", "kwClearAll", "kwBadge",
-    "retBar", "retTitle", "retDone", "retClose"];
+    "retBar", "retTitle", "retDone", "retClose", "splitKakao", "splitTip", "splitTipClose"];
   function clearHandlers() {
     TRANSFER_IDS.forEach(function (id) { doc.getElementById(id).listeners = {}; });
   }
@@ -895,6 +895,46 @@
   A("transferMerge").fire("click");
   eq("W 줄 백업: 당첨 1건으로 읽는다", A("cWon").textContent, "1");
   eq("W 줄 백업: 후기는 미작성으로 시작", !!JSON.parse(store[A_STORE] || "{}")[FUT.campaignId].reviewed, false);
+
+  /* ── 분할 화면 카톡 버튼(Android 앱 전용) ──
+   * 앱 WebView 가 넣는 AndroidSplitBridge 가 있을 때만 보이고, 분할 화면이면 카톡을 옆 칸에,
+   * 전체 화면이면 앱 페어 안내를 띄운다. 일반 브라우저(브리지 없음)에서는 버튼 자체가 숨는다. */
+  var splitHtml = global.__HTML__ || "";
+  ok("분할: 마크업에 버튼과 안내가 hidden 으로 있다",
+    /id="splitKakao"[^>]*\shidden/.test(splitHtml) && /id="splitTip"[^>]*\shidden/.test(splitHtml));
+
+  delete global.AndroidSplitBridge;
+  reloadWith(null);
+  eq("분할: 브리지가 없으면(일반 브라우저) 버튼을 숨긴다", A("splitKakao").hidden, true);
+
+  var splitCalls = { opened: 0 };
+  global.AndroidSplitBridge = {
+    multi: false,
+    open: false,
+    isMultiWindow: function () { return this.multi; },
+    openKakaoAdjacent: function () { splitCalls.opened++; return this.open; }
+  };
+  reloadWith(null);
+  eq("분할: 앱(브리지 있음)이면 버튼이 보인다", A("splitKakao").hidden, false);
+  A("splitKakao").fire("click");
+  eq("분할: 전체 화면에서 누르면 카톡을 열지 않는다", splitCalls.opened, 0);
+  eq("분할: 전체 화면이면 앱 페어 안내가 뜬다", A("splitTip").hidden, false);
+  A("splitTipClose").fire("click");
+  eq("분할: 안내는 확인을 누르면 닫힌다", A("splitTip").hidden, true);
+
+  global.AndroidSplitBridge.multi = true;
+  global.AndroidSplitBridge.open = true;
+  reloadWith(null);
+  A("splitKakao").fire("click");
+  eq("분할: 분할 화면에서는 카톡을 옆 칸에 연다", splitCalls.opened, 1);
+  eq("분할: 열렸으면 안내는 뜨지 않는다", A("splitTip").hidden, true);
+
+  global.AndroidSplitBridge.open = false;
+  reloadWith(null);
+  A("splitKakao").fire("click");
+  ok("분할: 옆 칸 열기에 실패하면 토스트로 알린다",
+    A("toast").innerHTML.indexOf("카톡을 열지 못했어요") !== -1, A("toast").innerHTML);
+  delete global.AndroidSplitBridge;
 
   global.__RESULT__ = { pass: pass, fail: fail, log: out };
 })(this);

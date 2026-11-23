@@ -143,7 +143,14 @@ GitHub 웹에서 **Actions → Update trial campaigns → Run workflow** 로도 
 
 - 매일 10:20(KST) 에 `data/campaigns.json` 을 확인해 신규 건수가 있으면 "오늘 신규 체험단 N건 도착!" 알림을 띄운다(Android 13+ 알림 권한 필요).
 - **[모바일 신청 열기]** 의 `gift-talk.kakao.com/appredirect` 링크와 `intent://` 딥링크를 카카오톡 앱으로 넘긴다.
+- **분할 화면(갤럭시 Z 폴드)**: 앱이 분할 화면에 있으면 카톡을 `FLAG_ACTIVITY_LAUNCH_ADJACENT` 로 **옆 칸**에 띄워
+  피드 화면을 덮지 않는다. 헤더의 `🪟 분할 카톡` 버튼은 앱(WebView)에서만 보이며, 전체 화면일 때 누르면
+  폴드 '앱 페어'를 한 번 저장해 두라는 안내를 띄운다(앱 ↔ 웹은 `AndroidSplitBridge` 다리로 잇는다: `isMultiWindow()`, `openKakaoAdjacent()`).
 - 빌드는 GitHub Actions(`android-app/**` push 또는 수동 실행)가 하고, 결과는 `kakao-trial-feed-debug-apk` 아티팩트에서 받는다. 자세한 내용은 `android-app/README.md`.
+
+> **설치 메모**: debug APK 는 빌드한 기계마다 서명 키가 새로 만들어져 **서명이 다르면 기존 앱 위에 설치되지 않는다**
+> (`앱이 설치되지 않음`). 그래서 같은 서명으로 다시 빌드하려면 `~/.android/debug.keystore` 를 그대로 쓰는 기계(작업 공간)에서
+> 빌드해야 한다. 워크플로가 만든 APK 는 실행마다 키가 달라져 덮어쓰기 설치가 안 될 수 있다.
 
 ## 참고
 
