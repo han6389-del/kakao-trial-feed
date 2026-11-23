@@ -599,9 +599,9 @@
   eq("배너: 돌아오는 순간 뜬다", A("retBar").hidden, false);
   A("retClose").fire("click");
 
-  /* ══ 발표 당일 유지 · 발표 다음 날 자동 정리 ══════════
-   * 실제 흐름: 상품을 체크(발표일까지 정보를 저장) → campaigns.json 에서 빠져도 오늘 발표 카드가 남음
-   *            → 발표 다음 날 다시 열면 자동으로 사라짐 */
+  /* ══ 발표 시각(11:00) 통과 즉시 자동 정리 ══════════
+   * 실제 흐름: 상품을 체크(발표일까지 정보를 저장) → campaigns.json 에서 빠져도 발표 11시 전까지 카드가 남음
+   *            → 발표일 11시가 지나면 바로 사라짐(당첨은 남음) */
   function isoDay(idx) {
     var d = new Date(idx * 864e5), p = function (n) { return (n < 10 ? "0" : "") + n; };
     return d.getUTCFullYear() + "-" + p(d.getUTCMonth() + 1) + "-" + p(d.getUTCDate());
@@ -610,10 +610,17 @@
     var d = new Date(idx * 864e5);
     return (d.getUTCMonth() + 1) + "/" + d.getUTCDate();
   }
+  /* 시각을 고정해 본다(11시 경계를 시간대와 무관하게 확인하려고) */
+  function kstClock(dayIdx, h, m) {
+    var p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return Date.parse(isoDay(dayIdx) + "T" + p(h) + ":" + p(m) + ":00+09:00");
+  }
   function listCards() {
     return A("list").children.map(function (c) { return c._html; }).join("");
   }
   var TD = KT.todayKST();
+  var PRE11 = kstClock(TD, 10, 59), POST11 = kstClock(TD, 11, 5);
+  KT.setNow(PRE11);
 
   /* 체크하면 스냅샷이 함께 저장된다 */
   reloadWith(null);
@@ -664,15 +671,40 @@
   ok("배지: 미신청 카드에는 발표일 배지가 없다",
     KT.cardHTML(rows[0], false).indexOf("announce") === -1);
 
-  /* 발표 다음 날이 되면 같은 기록이 사라진다(발표일이 어제인 기록을 그대로 둔 상태로 다시 연 상황) */
+  /* 발표일 11시가 지나면 같은 기록이 그 자리에서 사라진다 — 당첨은 예외 */
+  eq("정리: 10:59 에는 오늘 발표 기록이 남아 있다", !!uiDone()["snapToday00001"], true);
+  KT.setNow(POST11);
+  var at11Seed = {};
+  at11Seed["snapToday0011"] = { at: new Date().toISOString(), title: "오늘 11시 발표 상품",
+    endDate: isoDay(TD - 1), category: "식품 · 과자", recruitmentCount: 5, applicationCount: 50, winRate: 10 };
+  at11Seed["snapWon0011x"] = { at: new Date().toISOString(), title: "오늘 11시 발표 당첨",
+    endDate: isoDay(TD - 1), won: true, wonAt: new Date().toISOString(), reviewed: false };
+  at11Seed["snapEnd00011"] = { at: new Date().toISOString(), title: "오늘 마감(내일 발표)", endDate: isoDay(TD) };
+  reloadWith((function () { var s = {}; s[A_STORE] = JSON.stringify(at11Seed); return s; })());
+  var ui11 = JSON.parse(store[A_STORE] || "{}");
+  eq("11시: 발표일 11:05 에 미당첨 기록은 바로 지운다", !!ui11["snapToday0011"], false);
+  eq("11시: 당첨 기록은 남긴다", !!ui11["snapWon0011x"], true);
+  eq("11시: 오늘 마감(발표는 내일)은 남긴다", !!ui11["snapEnd00011"], true);
+  eq("11시: 당첨 건수 1", A("cWon").textContent, "1");
+  eq("11시: 신청완료 건수 1(오늘 마감만)", A("cDone").textContent, "1");
+  ok("11시: 정리한 것을 토스트로 알린다", A("toast").innerHTML.indexOf("정리했어요") !== -1, A("toast").innerHTML);
+  tabEv("done").fire("click");
+  eq("11시: 신청완료 탭에 1건", A("shownCount").textContent, "1건");
+  ok("11시: 지운 카드는 목록에 없다", listCards().indexOf("snapToday0011") === -1, listCards().slice(0, 200));
+  tabEv("all").fire("click");
+
+  /* 발표 다음 날이 되면 같은 기록이 사라진다(발표일이 지난 기록을 그대로 둔 상태로 다시 연 상황) */
+  KT.setNow(PRE11);
   var nextDaySeed = {};
-  Object.keys(uiDone()).forEach(function (k) { nextDaySeed[k] = uiDone()[k]; });
+  nextDaySeed["snapToday00001"] = seedSnaps["snapToday00001"];
+  reloadWith((function () { var s = {}; s[A_STORE] = JSON.stringify(nextDaySeed); return s; })());
+  eq("유지: 발표 11시 전에는 다시 열아도 남는다", !!uiDone()["snapToday00001"], true);
   nextDaySeed["snapToday00001"].endDate = isoDay(TD - 2); // 발표일 = 어제
   reloadWith((function () { var s = {}; s[A_STORE] = JSON.stringify(nextDaySeed); return s; })());
   eq("정리: 발표 다음 날 열면 오늘 발표였던 기록이 사라진다", !!uiDone()["snapToday00001"], false);
-  eq("정리: 건수도 줄어든다", A("cDone").textContent, "2");
   ok("정리: 알려 준다", A("toast").innerHTML.indexOf("정리했어요") !== -1, A("toast").innerHTML);
-  chipsFilter.filter(function (c) { return c.attrs["data-filter"] === "all"; })[0].fire("click");
+  KT.setNow(null);
+  tabEv("all").fire("click");
 
   /* ══ 🎉 당첨 탭 · 후기 챙기기 ══════════
    * 실제 흐름: 신청완료 카드 [🎉 당첨] → 당첨 탭으로 이동 → [✓ 후기 완료] 토글

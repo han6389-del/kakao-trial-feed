@@ -47,8 +47,20 @@
     if (p.length < 3) return NaN;
     return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 864e5;
   }
+  /* ── 시계 ───────────────────────────────
+   * 발표 시각(11:00) 판단은 날짜뿐 아니라 시(hour)까지 봐야 해서, 테스트가 시각을 고정할 수 있게
+   * 전역에 시계를 하나 둔다. 비어 있으면 실제 시각(Date.now)이다. */
+  var ANNOUNCE_HOUR = 11; // 발표 시각(KST) — 마감 다음 날 11:00
+  function now() {
+    var fixed = global && global.__KT_NOW_MS__;
+    return typeof fixed === "number" && isFinite(fixed) ? fixed : Date.now();
+  }
+  /** 테스트용 시계 고정 — ms 를 주면 그 시각, 아무것도 주지 않으면 실제 시각으로 되돌린다 */
+  function setNow(ms) {
+    if (global) global.__KT_NOW_MS__ = (typeof ms === "number" && isFinite(ms)) ? ms : null;
+  }
   function todayKST(nowMs) {
-    var d = new Date((nowMs || Date.now()) + 9 * 3600e3);
+    var d = new Date((nowMs || now()) + 9 * 3600e3);
     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 864e5;
   }
   /** 남은 일수 표시: 오늘 마감 / D-n / 마감 */
@@ -70,6 +82,18 @@
     var end = dayIndex(endDate);
     return isNaN(end) ? NaN : end + 1;
   }
+  /** 발표 시각(ms) = 발표일 11:00 KST. 마감일이 없으면 NaN */
+  function announceAt(endDate) {
+    var ann = announceDay(endDate);
+    // day index 는 UTC 자정 기준이라 KST 11:00 = 그날 UTC 02:00
+    return isNaN(ann) ? NaN : ann * 864e5 + (ANNOUNCE_HOUR - 9) * 3600e3;
+  }
+  /** 발표가 끝났나 — 발표일 11:00:00 KST 부터 참. 마감일을 모르면 거짓(모른다) */
+  function announced(endDate, nowMs) {
+    var at = announceAt(endDate);
+    if (isNaN(at)) return false;
+    return (typeof nowMs === "number" ? nowMs : now()) >= at;
+  }
   /** day index → "M/D" */
   function dayToMD(idx) {
     var d = new Date(idx * 864e5);
@@ -87,13 +111,17 @@
     var ann = announceDay(endDate);
     if (isNaN(ann)) return { show: false, label: "", cls: "", days: null };
     var d = Math.round(ann - todayKST(nowMs));
-    if (d === 0) return { show: true, label: "🎉 오늘 11시 발표", cls: "today", days: 0 };
+    if (d === 0) {
+      // 발표일 11:00 이 지났으면 ‘오늘 발표’가 아니다(정리되기 전 한순간에도 문구가 틀리지 않게)
+      if (announced(endDate, nowMs)) return { show: true, label: "발표 끝남", cls: "past", days: 0 };
+      return { show: true, label: "🎉 오늘 11시 발표", cls: "today", days: 0 };
+    }
     if (d > 0) return { show: true, label: "발표 " + dayToMD(ann) + " 11시", cls: "", days: d };
     return { show: true, label: "발표 끝남", cls: "past", days: d };
   }
   /** 상품 → 신청완료 저장용 스냅샷(빈 값은 넣지 않는다) */
   function snapshotOf(c, nowMs) {
-    var out = { at: new Date(nowMs || Date.now()).toISOString() };
+    var out = { at: new Date(nowMs || now()).toISOString() };
     if (!c) return out;
     for (var i = 0; i < SNAP_FIELDS.length; i++) {
       var k = SNAP_FIELDS[i], v = c[k];
@@ -121,27 +149,27 @@
     });
     return out;
   }
-  /** 발표 다음 날이 지난 신청완료 항목을 지운다(마감일이 없는 옛 항목은 안전하게 남긴다).
-   *  당첨으로 표시한 항목(won)은 후기를 쓸 때까지 절대 지우지 않는다. */
+  /** 발표 시각(발표일 11:00 KST)이 지난 신청완료 항목을 지운다 — 그날 11시가 지나면 바로 지운다.
+   *  (마감일이 없는 옛 항목은 안전하게 남긴다.) 당첨으로 표시한 항목(won)은 후기를 쓸 때까지 절대 지우지 않는다. */
   function pruneApplied(applied, nowMs) {
-    var today = todayKST(nowMs), out = {}, removed = [], keptWon = 0;
+    var at = typeof nowMs === "number" ? nowMs : now(), out = {}, removed = [], keptWon = 0;
     Object.keys(applied || {}).forEach(function (id) {
-      var e = applied[id] || {}, ann = announceDay(e.endDate);
+      var e = applied[id] || {};
       if (e.won) { keptWon++; out[id] = e; return; }   // 🎉 당첨은 자동 정리 대상에서 제외
-      if (!isNaN(ann) && ann < today) { removed.push(id); return; }
+      if (announced(e.endDate, at)) { removed.push(id); return; }
       out[id] = e;
     });
     return { applied: out, removed: removed, keptWon: keptWon };
   }
   /** campaigns.json 에서 빠졌지만 발표일이 아직 남은 신청완료 기록을 카드 모양으로 되살린다 */
   function snapshotRows(applied, campaigns, nowMs) {
-    var have = {}, today = todayKST(nowMs), out = [];
+    var have = {}, today = todayKST(nowMs), at = typeof nowMs === "number" ? nowMs : now(), out = [];
     (campaigns || []).forEach(function (c) { if (c && c.campaignId) have[c.campaignId] = 1; });
     Object.keys(applied || {}).forEach(function (id) {
       if (have[id]) return;                     // 지금 목록에 있으면 그 카드를 쓴다
       var e = applied[id] || {}, ann = announceDay(e.endDate);
-      // 마감일이 없거나 발표가 끝난 옛 기록은 카드로 만들지 않는다 — 단 당첨은 후기를 쓸 때까지 남긴다
-      if (!e.won && (isNaN(ann) || ann < today)) return;
+      // 마감일이 없거나 발표 시각(11:00)이 지난 옛 기록은 카드로 만들지 않는다 — 단 당첨은 후기를 쓸 때까지 남긴다
+      if (!e.won && (isNaN(ann) || announced(e.endDate, at))) return;
       if (!e.title) return;
       out.push({
         campaignId: id, title: e.title, brandName: e.brandName || "", imageUrl: e.imageUrl || "",
@@ -200,12 +228,12 @@
   }
   /** 당첨 탭 정렬 — 후기 미작성 먼저, 그다음 발표일 가까운 순 */
   function applyWonSort(rows, isReviewed, nowMs) {
-    var out = (rows || []).slice(), now = nowMs || Date.now();
+    var out = (rows || []).slice(), t = typeof nowMs === "number" ? nowMs : now();
     out.sort(function (a, b) {
       var ar = isReviewed && isReviewed(a.campaignId) ? 1 : 0;
       var br = isReviewed && isReviewed(b.campaignId) ? 1 : 0;
       if (ar !== br) return ar - br;                       // 후기 전 → 후기 완료
-      var x = announceRank(a.endDate, now), y = announceRank(b.endDate, now);
+      var x = announceRank(a.endDate, t), y = announceRank(b.endDate, t);
       var dd = (x.rank === 2 && y.rank === 2) ? (y.days - x.days) : (x.days - y.days);
       return (x.rank - y.rank) || dd || (b.winRate - a.winRate);
     });
@@ -313,9 +341,9 @@
       });
     } else if (mode === "announce") {
       // 발표일 가까운 순 — 오늘 발표가 맨 위, 그다음 앞으로의 발표일, 이미 지난 것·마감일 미상은 뒤로
-      var now = Date.now();
+      var t = now();
       out.sort(function (a, b) {
-        var x = announceRank(a.endDate, now), y = announceRank(b.endDate, now);
+        var x = announceRank(a.endDate, t), y = announceRank(b.endDate, t);
         var dd = x.rank === 2 ? (y.days - x.days) : (x.days - y.days); // 지난 것은 최근 것부터
         return (x.rank - y.rank) || dd || (b.winRate - a.winRate);
       });
@@ -331,7 +359,7 @@
     var o = opts || {};
     var rows = (all || []).filter(function (c) { return matches(c, o); });
     // 당첨 탭은 후기 미작성 먼저, 신청완료 탭은 정렬 선택과 무관하게 발표일 가까운 순
-    if (o.filter === "won") return applyWonSort(rows, o.isReviewed, Date.now());
+    if (o.filter === "won") return applyWonSort(rows, o.isReviewed, now());
     return sortList(rows, o.filter === "done" ? "announce" : o.sort);
   }
   /* ── 숨김(삭제) ─────────────────────────
@@ -567,9 +595,9 @@
     if (!lo || !lo.id) return false;
     var at = typeof lo.at === "number" ? lo.at : Date.parse(lo.at);
     if (!at || isNaN(at)) return false;
-    var now = nowMs || Date.now();
-    if (at > now) at = now;                  // 기기 시계가 앞서 있어도 30분 규칙은 지킨다
-    if (now - at > RETURN_TTL) return false;
+    var t = typeof nowMs === "number" ? nowMs : now();
+    if (at > t) at = t;                      // 기기 시계가 앞서 있어도 30분 규칙은 지킨다
+    if (t - at > RETURN_TTL) return false;
     if (isDone && isDone(lo.id)) return false;
     if (isHidden && isHidden(lo.id)) return false;
     return true;
@@ -587,9 +615,10 @@
   }
 
   global.KT = {
-    esc: esc, num: num, pct: pct, dday: dday, todayKST: todayKST, fmtUpdated: fmtUpdated,
+    esc: esc, num: num, pct: pct, dday: dday, todayKST: todayKST, fmtUpdated: fmtUpdated, now: now, setNow: setNow,
     matches: matches, sortList: sortList, query: query, summarize: summarize, cardHTML: cardHTML,
-    announceDay: announceDay, dayToMD: dayToMD, announceBadge: announceBadge, snapshotOf: snapshotOf,
+    announceDay: announceDay, announceAt: announceAt, announced: announced, ANNOUNCE_HOUR: ANNOUNCE_HOUR,
+    dayToMD: dayToMD, announceBadge: announceBadge, snapshotOf: snapshotOf,
     hydrateApplied: hydrateApplied, pruneApplied: pruneApplied, snapshotRows: snapshotRows,
     doneRows: doneRows, SNAP_FIELDS: SNAP_FIELDS, announceRank: announceRank,
     scopeRows: scopeRows, TABS: TABS,
@@ -621,7 +650,7 @@
   function loadApplied() {
     try {
       var raw = JSON.parse(localStorage.getItem(STORE) || "{}");
-      var cut = Date.now() - KEEP_DAYS * 864e5, out = {};
+      var cut = now() - KEEP_DAYS * 864e5, out = {};
       Object.keys(raw).forEach(function (k) {
         var at = raw[k] && raw[k].at ? Date.parse(raw[k].at) : 0;
         // 당첨 기록은 기간과 상관없이 남긴다 — 후기를 쓸 때까지 사라지지 않아야 한다
@@ -652,7 +681,7 @@
   /** 저장된 신청완료를 지금 목록에 맞춘다 — ① 예전 체크분 정보 보강(hydrate) ② 발표가 끝난 것 정리(prune) */
   function syncApplied() {
     var before = JSON.stringify(state.applied);
-    var pruned = pruneApplied(hydrateApplied(state.applied, rawCampaigns()), Date.now());
+    var pruned = pruneApplied(hydrateApplied(state.applied, rawCampaigns()), now());
     state.applied = pruned.applied;
     var changed = JSON.stringify(state.applied) !== before;
     if (changed) saveApplied();
@@ -663,14 +692,14 @@
   function notePrune(n) {
     if (!n) return;
     if (!state.data) { pendingPrune += n; return; }
-    toast("발표일이 지난 " + num(n) + "건을 신청완료에서 정리했어요");
+    toast("발표가 끝난 " + num(n) + "건을 신청완료에서 정리했어요");
   }
 
   /* ── 숨김 저장소 ─────────────────────── */
   function loadHidden() {
     try {
       var raw = JSON.parse(localStorage.getItem(HIDDEN_STORE) || "{}");
-      var cut = Date.now() - HIDDEN_DAYS * 864e5, out = {}, dropped = false;
+      var cut = now() - HIDDEN_DAYS * 864e5, out = {}, dropped = false;
       Object.keys(raw).forEach(function (k) {
         var at = raw[k] && raw[k].at ? Date.parse(raw[k].at) : 0;
         if (!at || at > cut) out[k] = raw[k] || { at: new Date().toISOString() };
@@ -725,7 +754,7 @@
   /** 화면·건수에 쓰는 목록 — campaigns.json + (목록에서 빠졌지만 발표일이 남은) 신청완료 스냅샷 */
   function allCampaigns() {
     var rows = rawCampaigns();
-    return rows.concat(snapshotRows(state.applied, rows, Date.now()));
+    return rows.concat(snapshotRows(state.applied, rows, now()));
   }
   /** 숨긴 상품을 뺀, 화면·건수에 실제로 쓰는 목록 */
   function visibleCampaigns() { return filterHidden(allCampaigns(), state.hidden); }
@@ -841,7 +870,7 @@
       "카테고리 칩은 카카오 대분류를 묶은 것이고, 분류가 없는 상품은 상품명으로 보정합니다.<br>" +
       "[완료 체크]를 누르면 그 상품이 ‘신청완료’ 탭으로 옮겨집니다(이 폰에만 저장).<br>" +
       "카드의 [✕ 숨기기]를 누르면 목록에서 빠집니다(이 폰에만 저장).<br>" +
-      "발표일(마감 다음 날 11시)이 지나면 신청완료에서 자동으로 정리됩니다.<br>" +
+      "발표일(마감 다음 날) 11시가 지나면 신청완료 탭에서 바로 자동으로 정리됩니다.<br>" +
       "신청완료 카드의 [🎉 당첨]을 누르면 ‘당첨’ 탭으로 옮겨지고, 후기를 쓸 때까지 자동 정리에서 빠집니다." +
       (state.excl.length
         ? "<br>제외 키워드 " + num(state.excl.length) + "개로 " + num(excludedCount()) + "건을 가리는 중" +
@@ -899,7 +928,7 @@
     var from = reset ? 0 : list.children.length;
     var frag = document.createElement("div");
     frag.innerHTML = shown.slice(from).map(function (c) {
-      return cardHTML(c, isDone(c.campaignId), state.filter === "done", Date.now(),
+      return cardHTML(c, isDone(c.campaignId), state.filter === "done", now(),
         { won: isWon(c.campaignId), reviewed: isReviewed(c.campaignId), wonTab: state.filter === "won" });
     }).join("");
     while (frag.firstChild) list.appendChild(frag.firstChild);
@@ -1033,7 +1062,7 @@
     if (!prevEntry || !prevEntry.won) return;
     state.applied = withWon(state.applied, id, false);
     // 발표일이 지난 건은 신청완료로 돌아가도 바로 정리된다 — 그 사실을 알린다
-    var pruned = pruneApplied(state.applied, Date.now());
+    var pruned = pruneApplied(state.applied, now());
     var gone = pruned.removed.indexOf(id) !== -1;
     state.applied = pruned.applied;
     saveApplied();
@@ -1467,7 +1496,7 @@
       if (bar && !bar.hidden) hideReturnBar();
       return;
     }
-    if (!shouldPromptReturn(lo, Date.now(), isDone, isHidden)) {
+    if (!shouldPromptReturn(lo, now(), isDone, isHidden)) {
       if (bar && !bar.hidden) hideReturnBar();
       clearLastOpen();
       return;
